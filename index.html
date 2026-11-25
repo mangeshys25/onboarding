@@ -1,0 +1,1697 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="UTF-8">
+<script>
+(function () {
+  var URL = '/exec';
+  function mk(ok, fail) {
+    return new Proxy({}, { get: function (_, fn) {
+      if (fn === 'withSuccessHandler') return function (f) { return mk(f, fail); };
+      if (fn === 'withFailureHandler') return function (f) { return mk(ok, f); };
+      return function () {
+        var args = [].slice.call(arguments);
+        fetch(URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                     body: JSON.stringify({ fn: fn, args: args }) })
+          .then(function (r) { return r.json(); })
+          .then(function (j) { if (j.error) throw new Error(j.error); if (ok) ok(j.result); })
+          .catch(function (e) { if (fail) fail(e); });
+      };
+    }});
+  }
+  window.google = { script: { run: mk() } };
+})();
+</script>
+<style>
+  body { font-family: Arial, sans-serif; background:#f3f5f9; margin:0; padding:20px; }
+  .wrap { max-width:640px; margin:auto; background:#fff; padding:28px;
+          border-radius:10px; box-shadow:0 2px 10px rgba(0,0,0,.08); }
+  h1 { margin-top:0; font-size:24px; color:#1a3c6e; }
+  label { display:block; margin:16px 0 6px; font-weight:bold; font-size:14px; }
+  input, select, textarea { width:100%; padding:10px; font-size:15px;
+          border:1px solid #c5cbd6; border-radius:6px; box-sizing:border-box; }
+  input.auto { background:#f1f3f7; }
+  .hint { font-size:12px; color:#6b7280; margin-top:3px; }
+  .res { font-size:13px; font-weight:bold; margin-top:4px; }
+  .okline  { color:#17652d; }
+  .badline { color:#a12121; }
+  button { margin-top:24px; width:100%; padding:13px; font-size:16px;
+           background:#1a3c6e; color:#fff; border:0; border-radius:6px; cursor:pointer; }
+  button:disabled { background:#9aa5b8; }
+  #msg { margin-top:16px; padding:12px; border-radius:6px; display:none; white-space:pre-line; }
+  .ok  { background:#e6f6ea; color:#17652d; }
+  .err { background:#fdeaea; color:#a12121; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Customer Onboarding</h1>
+  <label>Account Type *</label>
+  <select id="type">
+    <option value="">-- Select account type --</option>
+    <option value="Retail">Retail Account</option>
+    <option value="Business">Business Account</option>
+    <option value="Foreign National">Foreign National Account</option>
+  </select>
+
+  <div id="formArea"></div>
+  <button id="submitBtn" style="display:none">Submit</button>
+  <div id="msg"></div>
+</div>
+
+<script>
+// ---------- SETTINGS ----------
+var DOB_DAY_FIRST = false;   // false = YYYY-MM-DD   |   true = YYYY-DD-MM
+var MAX_MB = 3;
+var MIN_AGE = 18;
+var CHECK_LEI_CHECKSUM = true;
+var DOB_PLACEHOLDER = DOB_DAY_FIRST ? 'YYYY-DD-MM' : 'YYYY-MM-DD';
+var CONSENT_VERSION = 'v1.0-2026-11-24';   // must match CONSENT_VERSION in Code.gs
+var CONSENT_TEXT = 'I agree to the collection and processing of my personal data and documents, including my ID documents and selfie (face image), by this institution and its service providers, including Google Gemini (AI), for identity verification and account opening. I have read and accept the Terms and Conditions and the Privacy Policy.';
+var PASSPORT_MIN_MONTHS = 6;
+var VISA_MUST_END_WITH_PASSPORT = true;
+var CHECK_EIN_PREFIX = true;
+
+function addMonthsIso(n) {
+  var d = new Date(); d.setMonth(d.getMonth() + n);
+  return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+}
+function ssnRuleError(v) {
+  var m = /^(\d{3})-(\d{2})-(\d{4})$/.exec(v || '');
+  if (!m) return '';
+  if (m[1] === '000' || m[1] === '666' || m[1].charAt(0) === '9') return 'This SSN is not valid (it cannot start with 000, 666 or 9).';
+  if (m[2] === '00') return 'This SSN is not valid (the middle two digits cannot be 00).';
+  if (m[3] === '0000') return 'This SSN is not valid (the last four digits cannot be 0000).';
+  return '';
+}
+function einPrefixOk(v) {
+  var m = /^(\d{2})-\d{7}$/.exec(v || '');
+  if (!m) return false;
+  var p = parseInt(m[1], 10);
+  var r = [[1,6],[10,16],[20,27],[30,48],[50,68],[71,77],[80,88],[90,95],[98,99]];
+  return r.some(function (x) { return p >= x[0] && p <= x[1]; });
+}
+function emailOk(v) { v = String(v || '').trim(); return v.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v); }
+
+// ---------- LISTS ----------
+var COUNTRIES = ["Afghanistan","Albania","Algeria","Andorra","Angola","Antigua and Barbuda","Argentina","Armenia","Australia","Austria","Azerbaijan","Bahamas","Bahrain","Bangladesh","Barbados","Belarus","Belgium","Belize","Benin","Bhutan","Bolivia","Bosnia and Herzegovina","Botswana","Brazil","Brunei","Bulgaria","Burkina Faso","Burundi","Cabo Verde","Cambodia","Cameroon","Canada","Central African Republic","Chad","Chile","China","Colombia","Comoros","Congo (Republic of the)","Congo (Democratic Republic of the)","Costa Rica","Cote d'Ivoire","Croatia","Cuba","Cyprus","Czech Republic","Denmark","Djibouti","Dominica","Dominican Republic","Ecuador","Egypt","El Salvador","Equatorial Guinea","Eritrea","Estonia","Eswatini","Ethiopia","Fiji","Finland","France","Gabon","Gambia","Georgia","Germany","Ghana","Greece","Grenada","Guatemala","Guinea","Guinea-Bissau","Guyana","Haiti","Honduras","Hungary","Iceland","India","Indonesia","Iran","Iraq","Ireland","Israel","Italy","Jamaica","Japan","Jordan","Kazakhstan","Kenya","Kiribati","Kosovo","Kuwait","Kyrgyzstan","Laos","Latvia","Lebanon","Lesotho","Liberia","Libya","Liechtenstein","Lithuania","Luxembourg","Madagascar","Malawi","Malaysia","Maldives","Mali","Malta","Marshall Islands","Mauritania","Mauritius","Mexico","Micronesia","Moldova","Monaco","Mongolia","Montenegro","Morocco","Mozambique","Myanmar","Namibia","Nauru","Nepal","Netherlands","New Zealand","Nicaragua","Niger","Nigeria","North Korea","North Macedonia","Norway","Oman","Pakistan","Palau","Palestine","Panama","Papua New Guinea","Paraguay","Peru","Philippines","Poland","Portugal","Qatar","Romania","Russia","Rwanda","Saint Kitts and Nevis","Saint Lucia","Saint Vincent and the Grenadines","Samoa","San Marino","Sao Tome and Principe","Saudi Arabia","Senegal","Serbia","Seychelles","Sierra Leone","Singapore","Slovakia","Slovenia","Solomon Islands","Somalia","South Africa","South Korea","South Sudan","Spain","Sri Lanka","Sudan","Suriname","Sweden","Switzerland","Syria","Taiwan","Tajikistan","Tanzania","Thailand","Timor-Leste","Togo","Tonga","Trinidad and Tobago","Tunisia","Turkey","Turkmenistan","Tuvalu","Uganda","Ukraine","United Arab Emirates","United Kingdom","United States","Uruguay","Uzbekistan","Vanuatu","Vatican City","Venezuela","Vietnam","Yemen","Zambia","Zimbabwe"];
+
+// Countries where automatic ZIP / postal code lookup is available
+var ZIP_CODES = {"Algeria":"DZ","Andorra":"AD","Argentina":"AR","Australia":"AU","Austria":"AT","Bangladesh":"BD","Belarus":"BY","Belgium":"BE","Brazil":"BR","Bulgaria":"BG","Canada":"CA","Croatia":"HR","Czech Republic":"CZ","Denmark":"DK","Dominican Republic":"DO","Finland":"FI","France":"FR","Germany":"DE","Guatemala":"GT","Hungary":"HU","Iceland":"IS","India":"IN","Ireland":"IE","Italy":"IT","Japan":"JP","Latvia":"LV","Liechtenstein":"LI","Lithuania":"LT","Luxembourg":"LU","Malaysia":"MY","Marshall Islands":"MH","Mexico":"MX","Moldova":"MD","Monaco":"MC","Netherlands":"NL","New Zealand":"NZ","North Macedonia":"MK","Norway":"NO","Pakistan":"PK","Philippines":"PH","Poland":"PL","Portugal":"PT","Romania":"RO","Russia":"RU","San Marino":"SM","Slovakia":"SK","Slovenia":"SI","South Africa":"ZA","Spain":"ES","Sri Lanka":"LK","Sweden":"SE","Switzerland":"CH","Thailand":"TH","Turkey":"TR","United Kingdom":"GB","United States":"US","Vatican City":"VA"};
+
+// Postal code format per country (example is shown in the box and the format is checked on Submit)
+var POSTAL_FORMATS = {
+  "India":          {re:/^\d{6}$/, example:"415501", digits:true, max:6},
+  "United States":  {re:/^\d{5}(-\d{4})?$/, example:"90210"},
+  "Canada":         {re:/^[A-Za-z]\d[A-Za-z][ -]?\d[A-Za-z]\d$/, example:"M5V 3L9"},
+  "United Kingdom": {re:/^[A-Za-z]{1,2}\d[A-Za-z\d]?\s?\d[A-Za-z]{2}$/, example:"SW1A 1AA"},
+  "Australia":      {re:/^\d{4}$/, example:"2000", digits:true, max:4},
+  "Germany":        {re:/^\d{5}$/, example:"10115", digits:true, max:5},
+  "France":         {re:/^\d{5}$/, example:"75001", digits:true, max:5},
+  "Italy":          {re:/^\d{5}$/, example:"00184", digits:true, max:5},
+  "Spain":          {re:/^\d{5}$/, example:"28001", digits:true, max:5},
+  "Netherlands":    {re:/^\d{4}\s?[A-Za-z]{2}$/, example:"1012 AB"},
+  "Japan":          {re:/^\d{3}-?\d{4}$/, example:"100-0001"},
+  "China":          {re:/^\d{6}$/, example:"100000", digits:true, max:6},
+  "Singapore":      {re:/^\d{6}$/, example:"018956", digits:true, max:6},
+  "Pakistan":       {re:/^\d{5}$/, example:"44000", digits:true, max:5},
+  "Bangladesh":     {re:/^\d{4}$/, example:"1207", digits:true, max:4},
+  "Sri Lanka":      {re:/^\d{5}$/, example:"00100", digits:true, max:5},
+  "Nepal":          {re:/^\d{5}$/, example:"44600", digits:true, max:5},
+  "Brazil":         {re:/^\d{5}-?\d{3}$/, example:"01310-100"},
+  "Mexico":         {re:/^\d{5}$/, example:"06000", digits:true, max:5},
+  "South Africa":   {re:/^\d{4}$/, example:"0001", digits:true, max:4},
+  "Philippines":    {re:/^\d{4}$/, example:"1000", digits:true, max:4},
+  "Malaysia":       {re:/^\d{5}$/, example:"50450", digits:true, max:5},
+  "Thailand":       {re:/^\d{5}$/, example:"10110", digits:true, max:5},
+  "Indonesia":      {re:/^\d{5}$/, example:"10110", digits:true, max:5},
+  "Vietnam":        {re:/^\d{6}$/, example:"100000", digits:true, max:6},
+  "South Korea":    {re:/^\d{5}$/, example:"03187", digits:true, max:5},
+  "Russia":         {re:/^\d{6}$/, example:"101000", digits:true, max:6},
+  "Turkey":         {re:/^\d{5}$/, example:"34000", digits:true, max:5},
+  "Switzerland":    {re:/^\d{4}$/, example:"8001", digits:true, max:4}
+};
+var VISA_TYPES = ["B-1 / B-2 (Visitor)","F-1 (Student)","J-1 (Exchange Visitor)","H-1B (Specialty Occupation)","H-4 (Dependent of H-1B)","L-1 (Intra-company Transferee)","O-1 (Extraordinary Ability)","E-2 (Treaty Investor)","TN (USMCA Professional)","G-4 (International Organization)","Other"];
+
+
+var PEP_PRIMARY   = "Primary PEP (The Public Official)";
+var PEP_SECONDARY = "Secondary PEP (Family Members / Relatives)";
+var PEP_TERTIARY  = "Tertiary PEP (Close Associates and Business Partners)";
+
+// ---------- FIELD DEFINITIONS ----------
+var SCHEMA = {
+  "Retail": [
+    {id:"name",   label:"Legal Name",                    type:"text"},
+    {id:"dob",    label:"Date of Birth",                 type:"dob"},
+    {id:"email", label:"Email ID", type:"email"},
+    {id:"addr1",  label:"Address Line 1 (Street Address)", type:"text"},
+    {id:"addr2",  label:"Address Line 2 (Apartment, Suite, Unit)", type:"text", optional:true},
+    {id:"zip",    label:"ZIP Code",                      type:"zip", country:"US", cityId:"city", stateId:"state"},
+    {id:"city",   label:"City",                          type:"text", auto:true},
+    {id:"state",  label:"State",                         type:"text", auto:true},
+    {id:"ssn",    label:"SSN Number",                    type:"ssn"},
+    {id:"ssnproof",label:"SSN Proof",                    type:"file"},
+    {id:"poa",    label:"Proof of Address (Utility Bill / Lease)", type:"file"},
+    {id:"photoid", label:"Government Photo ID (Driver License / State ID / Passport)", type:"file"},
+{id:"selfie", label:"Selfie (live photo of your face)", type:"file", selfie:true},
+    {id:"occ",    label:"Occupation",                    type:"text"},
+    {id:"pep",    label:"PEP Self-Declaration (Are you a Politically Exposed Person?)",
+             type:"select", options:["No","Yes"]},
+    {id:"pepname",label:"Name of the PEP",               type:"text",
+             showIf:{id:"pep", value:"Yes"}},
+    {id:"peptype",label:"Your Relationship with the PEP", type:"select",
+             options:[PEP_PRIMARY, PEP_SECONDARY, PEP_TERTIARY],
+             showIf:{id:"pep", value:"Yes"}},
+    {id:"pepprimary", label:"Primary PEP Detail", type:"select",
+             options:["Individual currently holding office",
+                      "Individual previously holding office"],
+             showIf:{id:"peptype", value:PEP_PRIMARY}},
+    {id:"pepsecondary", label:"Secondary PEP Detail", type:"select",
+             options:["Spouses or domestic partners",
+                      "Children and their spouses/partners",
+                      "Parents",
+                      "Siblings"],
+             showIf:{id:"peptype", value:PEP_SECONDARY}},
+    {id:"peptertiary", label:"Tertiary PEP Detail", type:"select",
+             options:["Business partners or co-owners of legal entities/trusts",
+                      "Individuals who hold beneficial ownership on behalf of a PEP",
+                      "Close personal or financial advisors who regularly act on their behalf"],
+             showIf:{id:"peptype", value:PEP_TERTIARY}}
+  ],
+  "Business": [
+    {id:"bname",  label:"Registered Business Name",      type:"text"},
+        {id:"lei",    label:"Legal Entity Identifier (LEI)", type:"lei"},
+    {id:"ein",    label:"Federal EIN",                   type:"ein"},
+    {id:"email", label:"Email ID", type:"email"},
+    {id:"cp575",  label:"IRS CP 575 / 147C Notice",      type:"file"},
+    {id:"coe",    label:"Formation Document",            type:"file"},
+    {id:"ubo",    label:"UBO Register Document",         type:"file"}
+  ],
+  "Foreign National": [
+    {id:"fname",  label:"Full Legal Name",               type:"text"},
+    {id:"alias",  label:"Alias (if any)",                type:"text", optional:true},
+    {id:"dob",    label:"Date of Birth",                 type:"dobdmy"},
+    {id:"email", label:"Email ID", type:"email"},
+    {id:"nat",    label:"Nationality",                   type:"select", options:COUNTRIES},
+    {id:"ppno",   label:"Passport Number",               type:"text"},
+    {id:"ppexp",  label:"Passport Expiry Date",          type:"expdmy"},
+    {id:"ppcopy", label:"Passport Copy",                 type:"file"},
+    {id:"visatype",label:"Visa Type",                    type:"select", options:VISA_TYPES},
+    {id:"visano", label:"Visa Number",                   type:"text"},
+     {id:"visaexp", label:"Visa Expiry Date", type:"expdmy"},
+    {id:"visacopy",label:"Visa Copy",                    type:"file"},
+     {id:"selfie", label:"Selfie (live photo of your face)", type:"file", selfie:true},
+        {id:"oaddress", label:"Overseas Address",            type:"textarea"},
+    {id:"pep",    label:"PEP Self-Declaration (Are you a Politically Exposed Person?)",
+             type:"select", options:["No","Yes"]},
+    {id:"pepname",label:"Name of the PEP",               type:"text",
+             showIf:{id:"pep", value:"Yes"}},
+    {id:"peptype",label:"Your Relationship with the PEP", type:"select",
+             options:[PEP_PRIMARY, PEP_SECONDARY, PEP_TERTIARY],
+             showIf:{id:"pep", value:"Yes"}},
+    {id:"pepprimary", label:"Primary PEP Detail", type:"select",
+             options:["Individual currently holding office",
+                      "Individual previously holding office"],
+             showIf:{id:"peptype", value:PEP_PRIMARY}},
+    {id:"pepsecondary", label:"Secondary PEP Detail", type:"select",
+             options:["Spouses or domestic partners",
+                      "Children and their spouses/partners",
+                      "Parents",
+                      "Siblings"],
+             showIf:{id:"peptype", value:PEP_SECONDARY}},
+    {id:"peptertiary", label:"Tertiary PEP Detail", type:"select",
+             options:["Business partners or co-owners of legal entities/trusts",
+                      "Individuals who hold beneficial ownership on behalf of a PEP",
+                      "Close personal or financial advisors who regularly act on their behalf"],
+             showIf:{id:"peptype", value:PEP_TERTIARY}}
+  ]
+};
+['Retail', 'Business', 'Foreign National'].forEach(function (t) {
+  SCHEMA[t].push({id:'consent', label:'Consent to data processing and terms', type:'consent'});
+});
+var typeSel = document.getElementById('type');
+var area = document.getElementById('formArea');
+var btn = document.getElementById('submitBtn');
+var msg = document.getElementById('msg');
+
+// ---------- HELPERS ----------
+function todayStr() {
+  var d = new Date();
+  return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+}
+
+function isDelete(e) { return e && e.inputType && e.inputType.indexOf('delete') === 0; }
+
+function fmtSSN(v, trail) {
+  var d = v.replace(/\D/g, '').slice(0, 9);
+  var out = d.slice(0, 3);
+  if (d.length > 3) out += '-' + d.slice(3, 5);
+  if (d.length > 5) out += '-' + d.slice(5);
+  if (trail && (d.length === 3 || d.length === 5)) out += '-';
+  return out;
+}
+
+function fmtDOB(v, trail) {
+  var d = v.replace(/\D/g, '').slice(0, 8);
+  var out = d.slice(0, 4);
+  if (d.length > 4) out += '-' + d.slice(4, 6);
+  if (d.length > 6) out += '-' + d.slice(6, 8);
+  if (trail && (d.length === 4 || d.length === 6)) out += '-';
+  return out;
+}
+
+// Returns the date as YYYY-MM-DD, or null if invalid
+function parseDOB(t) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
+  if (!m) return null;
+  var y = +m[1], a = +m[2], b = +m[3];
+  var mo = DOB_DAY_FIRST ? b : a;
+  var d  = DOB_DAY_FIRST ? a : b;
+  var dt = new Date(y, mo - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+  if (y < 1900 || dt > new Date()) return null;
+  return y + '-' + ('0' + mo).slice(-2) + '-' + ('0' + d).slice(-2);
+}
+// True if the date (YYYY-MM-DD) is at least MIN_AGE years before today
+function isAdult(iso) {
+  var d = new Date();
+  var cutoff = (d.getFullYear() - MIN_AGE) + '-' +
+               ('0' + (d.getMonth() + 1)).slice(-2) + '-' +
+               ('0' + d.getDate()).slice(-2);
+  return iso <= cutoff;
+}
+// DD-MM-YYYY auto-formatting (adds the dashes while typing)
+function fmtDMY(v, trail) {
+  var d = v.replace(/\D/g, '').slice(0, 8);
+  var out = d.slice(0, 2);
+  if (d.length > 2) out += '-' + d.slice(2, 4);
+  if (d.length > 4) out += '-' + d.slice(4, 8);
+  if (trail && (d.length === 2 || d.length === 4)) out += '-';
+  return out;
+}
+
+// Reads DD-MM-YYYY and returns YYYY-MM-DD, or null if it is not a real date
+function parseDMY(t) {
+  var m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(t);
+  if (!m) return null;
+  var d = +m[1], mo = +m[2], y = +m[3];
+  var dt = new Date(y, mo - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+  if (y < 1900) return null;
+  return y + '-' + ('0' + mo).slice(-2) + '-' + ('0' + d).slice(-2);
+}
+function fmtEIN(v, trail) {
+  var d = v.replace(/\D/g, '').slice(0, 9);
+  var out = d.slice(0, 2);
+  if (d.length > 2) out += '-' + d.slice(2);
+  if (trail && d.length === 2) out += '-';
+  return out;
+}
+
+// 20 letters/digits, and (optionally) the official ISO check-code
+function validLEI(s) {
+  if (!/^[A-Z0-9]{20}$/.test(s)) return false;
+  if (!CHECK_LEI_CHECKSUM) return true;
+  var num = '';
+  for (var i = 0; i < s.length; i++) {
+    var c = s.charCodeAt(i);
+    num += (c >= 65) ? (c - 55) : String.fromCharCode(c);
+  }
+  var rem = 0;
+  for (var j = 0; j < num.length; j++) rem = (rem * 10 + parseInt(num.charAt(j), 10)) % 97;
+  return rem === 1;
+}
+function setRes(id, ok, text) {
+  var el = document.getElementById('res_' + id);
+  if (!el) return;
+  el.className = 'res ' + (ok ? 'okline' : 'badline');
+  el.textContent = ok ? ('\u2714 OK' + (text ? ' - ' + text : '')) : ('\u2716 ' + text);
+}
+
+function clearRes() {
+  var els = document.querySelectorAll('.res');
+  for (var i = 0; i < els.length; i++) { els[i].textContent = ''; els[i].className = 'res'; }
+}
+
+function show(text, ok) {
+  msg.textContent = text;
+  msg.className = ok ? 'ok' : 'err';
+  msg.style.display = 'block';
+}
+
+function scrollToFirstBad() {
+  var bad = document.querySelector('.badline');
+  if (bad) bad.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// ---------- BUILD FIELDS ----------
+function fieldHtml(f) {
+    if (f.type === 'consent') {
+    return '<div id="wrap_consent"><label style="font-weight:normal;display:flex;gap:10px;align-items:flex-start;margin:22px 0 6px"><input type="checkbox" id="consent" style="width:auto;padding:0;margin-top:3px"><span>' + CONSENT_TEXT + ' <span style="color:#6b7280">(Version ' + CONSENT_VERSION + ')</span></span></label><div class="res" id="res_consent"></div></div>';
+  }
+  var html = '<div id="wrap_' + f.id + '"' + (f.showIf ? ' style="display:none"' : '') + '>';
+  html += '<label>' + f.label + (f.optional ? ' (optional)' : ' *') + '</label>';
+  if (f.type === 'textarea') {
+    html += '<textarea id="' + f.id + '"></textarea>';
+  } else if (f.type === 'select') {
+    html += '<select id="' + f.id + '"><option value="">-- Select --</option>' +
+      f.options.map(function (o) {
+        return '<option value="' + o.replace(/"/g, '&quot;') + '">' + o + '</option>';
+      }).join('') + '</select>';
+  } else if (f.type === 'file') {
+        html += '<input type="file" id="' + f.id + '" accept="' + (f.selfie ? 'image/*" capture="user' : '.pdf,.jpg,.jpeg,.png') + '">' +
+            '<div class="hint">PDF, JPG or PNG, max ' + MAX_MB + ' MB</div>';
+  } else if (f.type === 'date') {
+    var extra = f.minToday ? ' min="' + todayStr() + '"' : '';
+    html += '<input type="date" id="' + f.id + '"' + extra + '>';
+      } else if (f.type === 'dobdmy') {
+    html += '<input type="text" id="' + f.id + '" inputmode="numeric" maxlength="10" placeholder="DD-MM-YYYY" autocomplete="off">' +
+            '<div class="hint">Format DD-MM-YYYY. You must be at least ' + MIN_AGE + ' years old.</div>';
+  } else if (f.type === 'expdmy') {
+    html += '<input type="text" id="' + f.id + '" inputmode="numeric" maxlength="10" placeholder="DD-MM-YYYY" autocomplete="off">' +
+            '<div class="hint">Format DD-MM-YYYY</div>';
+              } else if (f.type === 'email') {
+    html += '<input type="text" id="' + f.id + '" inputmode="email" autocomplete="off" placeholder="name@example.com">';
+  } else if (f.type === 'ssn') {
+    html += '<input type="text" id="' + f.id + '" inputmode="numeric" maxlength="11" placeholder="123-45-6789" autocomplete="off">';
+  } else if (f.type === 'dob') {
+        html += '<input type="text" id="' + f.id + '" inputmode="numeric" maxlength="10" placeholder="' + DOB_PLACEHOLDER + '" autocomplete="off">' +
+            '<div class="hint">You must be at least ' + MIN_AGE + ' years old.</div>';
+              } else if (f.type === 'lei') {
+    html += '<input type="text" id="' + f.id + '" maxlength="20" placeholder="20 letters and digits" autocomplete="off">' +
+            '<div class="hint">20 characters: letters A-Z and digits 0-9, no spaces</div>';
+  } else if (f.type === 'ein') {
+    html += '<input type="text" id="' + f.id + '" inputmode="numeric" maxlength="10" placeholder="12-3456789" autocomplete="off">' +
+            '<div class="hint">9 digits, format 12-3456789</div>';
+  } else if (f.type === 'zip') {
+    html += f.country
+      ? '<input type="text" id="' + f.id + '" inputmode="numeric" maxlength="5" placeholder="12345" autocomplete="off">'
+      : '<input type="text" id="' + f.id + '" placeholder="Postal code" autocomplete="off">';
+  } else if (f.auto) {
+    html += '<input type="text" id="' + f.id + '" class="auto" readonly placeholder="Filled automatically from ZIP / postal code">';
+  } else {
+    html += '<input type="text" id="' + f.id + '" autocomplete="off">';
+  }
+  html += '<div class="hint" id="hint_' + f.id + '"></div><div class="res" id="res_' + f.id + '"></div>';
+  return html + '</div>';
+}
+
+function isVisible(f) {
+  return document.getElementById('wrap_' + f.id).style.display !== 'none';
+}
+
+// ---------- ZIP LOOKUP ----------
+function postalFormat(f) {
+  var c = f.countryFrom ? document.getElementById(f.countryFrom).value : 'United States';
+  return POSTAL_FORMATS[c] || null;
+}
+
+function postalError(f, v) {
+  var fmt = postalFormat(f);
+  if (!fmt || fmt.re.test(v)) return '';
+  return 'Enter a valid postal code for ' + document.getElementById(f.countryFrom).value +
+         ' (example: ' + fmt.example + ')';
+}
+
+var zipToken = {};
+function setupZip(f) {
+  var zipEl = document.getElementById(f.id);
+  var timer;
+
+  function setAuto(cityEl, stateEl, locked) {
+    cityEl.readOnly = locked; stateEl.readOnly = locked;
+    if (locked) { cityEl.classList.add('auto'); stateEl.classList.add('auto'); }
+    else { cityEl.classList.remove('auto'); stateEl.classList.remove('auto'); }
+  }
+
+  function unlock(el) { el.readOnly = false; el.classList.remove('auto'); }
+
+  // Changes the example, length limit and keyboard when the country changes
+  function applyFormat() {
+    if (!f.countryFrom) return;
+    var fmt = postalFormat(f);
+    zipEl.placeholder = fmt ? ('e.g. ' + fmt.example) : 'Postal code';
+    if (fmt && fmt.max) zipEl.maxLength = fmt.max; else zipEl.removeAttribute('maxlength');
+    zipEl.inputMode = (fmt && fmt.digits) ? 'numeric' : 'text';
+  }
+
+  function run() {
+    var cityEl = document.getElementById(f.cityId);
+    var stateEl = document.getElementById(f.stateId);
+    var hint = document.getElementById('hint_' + f.id);
+    var zip = zipEl.value.trim();
+
+    var selected = f.countryFrom ? document.getElementById(f.countryFrom).value : 'United States';
+    var country = f.country ? f.country : (ZIP_CODES[selected] || '');
+    var isUS = country === 'US';
+    var fmt = postalFormat(f);
+
+    // No country chosen yet
+    if (f.countryFrom && !selected) {
+      cityEl.value = ''; stateEl.value = '';
+      setAuto(cityEl, stateEl, true);
+      hint.textContent = zip ? 'Please select the country first.' : '';
+      return;
+    }
+    // Country not covered by the free lookup
+    if (!country) {
+      setAuto(cityEl, stateEl, false);
+      hint.textContent = 'Automatic city/state lookup is not available for ' + selected +
+                         '. Please type the city and state / province yourself.';
+      return;
+    }
+    // Wait for a complete code in the right format
+    if (!zip || (isUS && !/^\d{5}$/.test(zip)) || (f.countryFrom && fmt && !fmt.re.test(zip))) {
+      cityEl.value = ''; stateEl.value = '';
+      setAuto(cityEl, stateEl, true);
+      hint.textContent = (zip && fmt && f.countryFrom) ? ('Format for ' + selected + ': e.g. ' + fmt.example) : '';
+      return;
+    }
+
+    hint.textContent = 'Looking up city and state...';
+    var token = (zipToken[f.id] = (zipToken[f.id] || 0) + 1);
+
+    google.script.run
+      .withSuccessHandler(function (r) {
+        if (token !== zipToken[f.id]) return;
+        if (r.found) {
+          cityEl.value = r.city || '';
+          stateEl.value = r.state || '';
+          setAuto(cityEl, stateEl, true);
+          hint.textContent = 'City and state filled automatically.' + (r.note ? ' ' + r.note : '');
+          if (r.cityEditable || !cityEl.value) unlock(cityEl);
+          if (!stateEl.value) unlock(stateEl);
+          if (!cityEl.value || !stateEl.value) hint.textContent = 'Please type the missing city / state.';
+        } else {
+          setAuto(cityEl, stateEl, false);
+          hint.textContent = 'Postal code not found. Please check it, or type the city and state yourself.';
+        }
+      })
+      .withFailureHandler(function () {
+        if (token !== zipToken[f.id]) return;
+        setAuto(cityEl, stateEl, false);
+        hint.textContent = 'Lookup unavailable. Please type the city and state.';
+      })
+      .lookupZip(country, zip);
+  }
+
+  zipEl.addEventListener('input', function () {
+    if (f.country) {
+      zipEl.value = zipEl.value.replace(/\D/g, '').slice(0, 5);
+    } else {
+      var fmt = postalFormat(f);
+      if (fmt && fmt.digits) zipEl.value = zipEl.value.replace(/\D/g, '').slice(0, fmt.max);
+    }
+    clearTimeout(timer);
+    timer = setTimeout(run, 400);
+  });
+
+  if (f.countryFrom) {
+    document.getElementById(f.countryFrom).addEventListener('change', function () {
+      applyFormat();
+      run();
+    });
+    applyFormat();
+  }
+}
+
+// ---------- WHEN ACCOUNT TYPE CHANGES ----------
+typeSel.addEventListener('change', function () {
+  area.innerHTML = ''; msg.style.display = 'none';
+  var fields = SCHEMA[typeSel.value];
+  if (!fields) { btn.style.display = 'none'; return; }
+
+  fields.forEach(function (f) { area.insertAdjacentHTML('beforeend', fieldHtml(f)); });
+
+  fields.forEach(function (f) {
+    var el = document.getElementById(f.id);
+    if (f.type === 'ssn') {
+      el.addEventListener('input', function (e) { el.value = fmtSSN(el.value, !isDelete(e)); });
+    }
+    if (f.type === 'dob') {
+      el.addEventListener('input', function (e) { el.value = fmtDOB(el.value, !isDelete(e)); });
+    }
+        if (f.type === 'dobdmy' || f.type === 'expdmy') {
+      el.addEventListener('input', function (e) { el.value = fmtDMY(el.value, !isDelete(e)); });
+    }
+        if (f.type === 'lei') {
+      el.addEventListener('input', function () {
+        el.value = el.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20);
+      });
+    }
+    if (f.type === 'ein') {
+      el.addEventListener('input', function (e) { el.value = fmtEIN(el.value, !isDelete(e)); });
+    }
+    if (f.type === 'zip') setupZip(f);
+
+    if (f.showIf) {
+      var controller = document.getElementById(f.showIf.id);
+      controller.addEventListener('change', function () {
+        var shouldShow = controller.value === f.showIf.value;
+        document.getElementById('wrap_' + f.id).style.display = shouldShow ? 'block' : 'none';
+        if (!shouldShow) {
+          el.value = '';
+          el.dispatchEvent(new Event('change'));
+        }
+      });
+    }
+  });
+
+  btn.style.display = 'block';
+});
+
+function readFile(file) {
+  return new Promise(function (resolve, reject) {
+    var r = new FileReader();
+    r.onload = function () {
+      resolve({ base64: r.result.split(',')[1], mimeType: file.type, name: file.name });
+    };
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+// ---------- SUBMIT ----------
+btn.addEventListener('click', async function () {
+  var fields = SCHEMA[typeSel.value];
+    var out = { accountType: typeSel.value, consentVersion: CONSENT_VERSION, fields: [], files: [] };
+  clearRes(); msg.style.display = 'none';
+
+  // 1. Check each field in the browser first
+  var errors = 0;
+  fields.forEach(function (f) {
+    if (!isVisible(f)) return;
+    var el = document.getElementById(f.id);
+    var err = '';
+        var ppEl = document.getElementById('ppexp');
+    var ppIso = ppEl ? parseDMY(ppEl.value.trim()) : null;
+    if (f.type === 'consent') {
+      if (!el.checked) err = 'You must agree to continue';
+    } else
+    if (f.type === 'file') {
+      if (!el.files.length) { if (!f.optional) err = 'Please upload this document'; }
+      else if (el.files[0].size > MAX_MB * 1024 * 1024) err = 'File is larger than ' + MAX_MB + ' MB';
+    } else {
+      var v = el.value.trim();
+      if (!v) { if (!f.optional) err = 'This field is required'; }
+      else if (f.type === 'ssn' && !/^\d{3}-\d{2}-\d{4}$/.test(v)) err = 'Enter 9 digits as 123-45-6789';
+            else if (f.type === 'dob' && !parseDOB(v)) err = 'Enter a valid past date as ' + DOB_PLACEHOLDER;
+      else if (f.type === 'dob' && !isAdult(parseDOB(v))) err = 'You must be at least ' + MIN_AGE + ' years old to open an account';
+            else if (f.type === 'dobdmy' && (!parseDMY(v) || parseDMY(v) > todayStr())) err = 'Enter a valid past date as DD-MM-YYYY';
+      else if (f.type === 'dobdmy' && !isAdult(parseDMY(v))) err = 'You must be at least ' + MIN_AGE + ' years old to open an account';
+      else if (f.type === 'expdmy' && !parseDMY(v)) err = 'Enter a valid date as DD-MM-YYYY';
+      else if (f.type === 'expdmy' && parseDMY(v) < todayStr()) err = 'This document has expired. The date cannot be in the past';
+            else if (f.type === 'lei' && !validLEI(v)) err = /^[A-Z0-9]{20}$/.test(v) ? 'This LEI is not valid (check code does not match). Please re-check it.' : 'LEI must be exactly 20 letters and digits';
+      else if (f.type === 'ein' && !/^\d{2}-\d{7}$/.test(v)) err = 'Enter 9 digits as 12-3456789';
+            else if (f.type === 'ein' && CHECK_EIN_PREFIX && !einPrefixOk(v)) err = 'This EIN does not start with a valid IRS prefix. Please re-check it.';
+      else if (f.type === 'ssn' && ssnRuleError(v)) err = ssnRuleError(v);
+      else if (f.type === 'email' && !emailOk(v)) err = 'Enter a valid email address';
+      else if (f.id === 'ppexp' && parseDMY(v) < addMonthsIso(PASSPORT_MIN_MONTHS)) err = 'Passport must be valid for at least ' + PASSPORT_MIN_MONTHS + ' more months';
+      else if (f.id === 'visaexp' && VISA_MUST_END_WITH_PASSPORT && ppIso && parseDMY(v) > ppIso) err = 'Visa expiry cannot be later than the passport expiry';
+      else if (f.type === 'zip' && f.country === 'US' && !/^\d{5}$/.test(v)) err = 'Enter a 5-digit ZIP code';
+            else if (f.type === 'zip' && f.countryFrom && postalError(f, v)) err = postalError(f, v);
+      else if (f.minToday && v < todayStr()) err = 'Date cannot be in the past';
+    }
+    if (err) { setRes(f.id, false, err); errors++; }
+  });
+  if (errors) {
+    show('Please correct the items marked in red.', false);
+    scrollToFirstBad();
+    return;
+  }
+
+  btn.disabled = true; btn.textContent = 'Verifying documents, please wait...';
+  try {
+    for (var j = 0; j < fields.length; j++) {
+      var fd = fields[j], e = document.getElementById(fd.id);
+      var visible = isVisible(fd);
+      if (fd.type === 'file') {
+        var info = (visible && e.files.length) ? await readFile(e.files[0])
+                                               : { base64: null, mimeType: '', name: '' };
+        info.label = fd.label;
+        info.id = fd.id;
+        out.files.push(info);
+      } else {
+        var val = visible ? e.value.trim() : '';
+                if (fd.type === 'consent') val = e.checked ? 'Agreed' : '';
+        if (fd.type === 'dob' && val) val = parseDOB(val);   // always sent as YYYY-MM-DD
+        if ((fd.type === 'dobdmy' || fd.type === 'expdmy') && val) val = parseDMY(val);   // sent as YYYY-MM-DD
+        out.fields.push({ id: fd.id, label: fd.label, value: val });
+      }
+    }
+
+    google.script.run
+      .withSuccessHandler(function (res) {
+        btn.disabled = false; btn.textContent = 'Submit';
+        clearRes();
+        (res.items || []).forEach(function (it) {
+          setRes(it.fieldId, it.ok, it.ok ? it.note : 'Check: ' + it.text);
+        });
+
+        if (res.saved) {
+          var ctrls = area.querySelectorAll('input, select, textarea');
+          for (var k = 0; k < ctrls.length; k++) ctrls[k].disabled = true;
+          typeSel.disabled = true;
+          btn.style.display = 'none';
+          show('Thank you! Your application was verified and submitted.\nReference: ' + res.ref +
+               '\n\nTo start a new application, refresh this page.', true);
+        } else if (res.items && res.items.length) {
+          show('Your application was NOT submitted. Please correct the items marked in red, ' +
+               'then click Submit again.', false);
+          scrollToFirstBad();
+        } else {
+          show(res.text, false);
+        }
+        msg.scrollIntoView({ behavior: 'smooth' });
+      })
+      .withFailureHandler(function (err) {
+        show('Error: ' + err.message, false);
+        btn.disabled = false; btn.textContent = 'Submit';
+      })
+      .submitForm(out);
+  } catch (err) {
+    show('Something went wrong. Please try again.', false);
+    btn.disabled = false; btn.textContent = 'Submit';
+  }
+});
+</script>
+<!-- ======= SMART ONBOARDING ENGINE v6: paste this just above </body> in Index.html ======= -->
+<!-- (delete the older chatbot block first; it replaces v5) -->
+<style>
+  /* ---------- Page background: digital / AI-era banking ---------- */
+  body { margin:0; padding:0 16px 40px; min-height:100vh; color:#0f1b3d;
+         font-family:Inter,'Segoe UI',Roboto,Arial,sans-serif;
+         background:
+           radial-gradient(700px 420px at 90% -5%, rgba(0,196,184,.22), transparent 60%),
+           radial-gradient(760px 520px at -8% 30%, rgba(99,102,241,.16), transparent 60%),
+           url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Ccircle cx='1' cy='1' r='1' fill='%231747d1' fill-opacity='.12'/%3E%3C/svg%3E"),
+           linear-gradient(160deg,#f8fbff 0%,#eaf2ff 55%,#e6f6f4 100%);
+         background-attachment:fixed; }
+  body::before { content:''; position:fixed; width:520px; height:520px; border-radius:50%;
+         left:55%; top:42%; pointer-events:none; z-index:0;
+         background:radial-gradient(circle, rgba(0,196,184,.16), transparent 65%);
+         animation:drift 14s ease-in-out infinite alternate; }
+  @keyframes drift { to { transform:translate(-170px,-130px); } }
+  @media (prefers-reduced-motion:reduce) { body::before, .mic.on { animation:none; } }
+
+  /* ---------- Hero ---------- */
+  #hero { position:relative; z-index:1; max-width:760px; margin:0 auto; padding:26px 4px 22px; color:#0b1f5c;
+          display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:18px; }
+  #hero .txt { flex:1 1 360px; }
+  .brandbar { display:flex; align-items:center; gap:10px; font-size:14px; letter-spacing:.3px; margin-bottom:16px; }
+  .logo { width:34px; height:34px; border-radius:10px; display:grid; place-items:center; font-weight:800;
+          background:linear-gradient(135deg,#19d3c5,#5b6cff); box-shadow:0 6px 16px rgba(25,211,197,.35); }
+  .pill { margin-left:6px; font-size:11px; padding:3px 10px; border-radius:20px;
+          border:1px solid #b9c8ee; color:#1747d1; background:#fff; }
+  #p5 { position:absolute; top:8px; right:14px; z-index:5; font-size:10px; letter-spacing:.5px; color:#6b7aa3; }
+  .zlogo { height:38px; width:auto; display:block; }
+  .co { font-size:13px; color:#51608a; border-left:1px solid #c5d0ea; padding-left:10px; }
+  #hero h1.title { margin:0 0 8px; font-size:36px; line-height:1.1; color:#0b1f5c; letter-spacing:-.5px;
+          background:linear-gradient(90deg,#0b1f5c,#0aa5b8); -webkit-background-clip:text; background-clip:text;
+          -webkit-text-fill-color:transparent; }
+  #hero .sub { margin:0 0 14px; color:#cfd9f5; font-size:15px; line-height:1.5; max-width:430px; }
+  .chips span { display:inline-block; margin:0 6px 6px 0; padding:5px 12px; font-size:12px; border-radius:20px;
+          background:#fff; border:1px solid #cfdaf5; color:#1b2a55; box-shadow:0 2px 8px rgba(23,50,120,.06); }
+  .bankcard { width:250px; height:150px; border-radius:18px; padding:18px; box-sizing:border-box; color:#fff;
+          background:linear-gradient(135deg,rgba(91,108,255,.9),rgba(25,211,197,.85));
+          box-shadow:0 24px 50px rgba(0,0,0,.4); transform:rotate(-4deg);
+          display:flex; flex-direction:column; justify-content:space-between; }
+  .bankcard .chip { width:38px; height:28px; border-radius:6px; background:linear-gradient(135deg,#ffe9a8,#e2b84b); }
+  .bankcard .num { font-size:17px; letter-spacing:2px; }
+  .bankcard .row { display:flex; justify-content:space-between; font-size:10px; letter-spacing:1px; }
+  .bankcard .ai { background:rgba(255,255,255,.25); padding:2px 8px; border-radius:10px; }
+  @media (max-width:640px) { .bankcard { display:none; } #hero h1.title { font-size:28px; } }
+  .compact #hero .sub, .compact #hero .chips, .compact .bankcard { display:none; }
+  .compact #hero { padding-bottom:10px; }
+  #foot { position:relative; z-index:1; text-align:center; color:#51608a; font-size:12px; margin-top:6px; }
+
+  /* ---------- Cards and form look ---------- */
+  .wrap { position:relative; z-index:1; max-width:760px; margin:0 auto 22px; padding:30px;
+          background:rgba(255,255,255,.97); border-radius:22px; border:1px solid #e3eaf8;
+          box-shadow:0 18px 50px rgba(23,50,120,.14); }
+  .wrap h1 { font-size:22px; color:#0b1f5c; }
+  .wrap h2 { margin:0 0 4px; font-size:22px; color:#0b1f5c; }
+  .wrap label { color:#1b2a55; }
+  .wrap input, .wrap select, .wrap textarea { border:1.5px solid #d3daea; border-radius:12px; padding:12px; background:#fbfcff; }
+  .wrap input.auto { background:#eef1f8; }
+  .wrap input:focus, .wrap select:focus, .wrap textarea:focus { outline:none; border-color:#12a5b5; box-shadow:0 0 0 3px rgba(18,165,181,.2); }
+  .wrap button { background:linear-gradient(90deg,#1747d1,#0aa5b8); border-radius:12px; font-weight:600;
+          box-shadow:0 8px 20px rgba(23,71,209,.3); transition:transform .15s, box-shadow .15s; }
+  .wrap button:hover { transform:translateY(-1px); }
+  .wrap button:disabled { background:#9aa5b8; box-shadow:none; transform:none; }
+  .wrap .linkbtn { background:none; box-shadow:none; color:#1747d1; width:auto; margin:0; padding:0; font-size:14px; font-weight:600; }
+  .wrap .linkbtn:hover { transform:none; text-decoration:underline; }
+
+  /* ---------- Start screen ---------- */
+  .opts { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:18px; }
+  @media (max-width:640px) { .opts { grid-template-columns:1fr; } }
+  .wrap .opt { position:relative; margin:0; padding:20px; text-align:left; color:#0b1f5c; background:#f4f7ff;
+          border:1.5px solid #d6e0ff; box-shadow:none; display:flex; flex-direction:column; gap:6px; width:auto; }
+  .wrap .opt:hover { border-color:#1747d1; box-shadow:0 10px 24px rgba(23,71,209,.18); }
+  .opt .ico { width:42px; height:42px; border-radius:12px; display:grid; place-items:center; color:#fff;
+          background:linear-gradient(135deg,#1747d1,#0aa5b8); }
+  .opt b { font-size:16px; } .opt small { color:#51608a; font-size:13px; line-height:1.4; font-weight:400; }
+  .opt em { position:absolute; top:12px; right:12px; font-style:normal; font-size:10px; color:#067a6f;
+          background:#d9fbf6; padding:3px 8px; border-radius:10px; }
+
+  /* ---------- Chat ---------- */
+  .chead { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px; }
+  .who { display:flex; align-items:center; gap:10px; }
+  .who b { display:block; color:#0b1f5c; font-size:15px; } .who small { color:#12a56a; font-size:12px; }
+  .avatar { width:40px; height:40px; border-radius:50%; display:grid; place-items:center; color:#fff; font-weight:700; font-size:13px;
+          background:linear-gradient(135deg,#5b6cff,#19d3c5); }
+  .wrap .vbtn { margin:0; width:auto; padding:8px 12px; font-size:12px; display:flex; align-items:center; gap:6px;
+          background:#eef2ff; color:#1747d1; box-shadow:none; border:1px solid #cbd6ff; }
+  .wrap .vbtn.on { background:#d9fbf6; color:#067a6f; border-color:#8fe7dc; }
+  #chatBox { height:min(440px,58vh); overflow-y:auto; border-radius:16px; padding:14px;
+          background:linear-gradient(180deg,#f6f8ff,#eef3fb); border:1px solid #dfe6f5; }
+  .b { max-width:84%; padding:10px 14px; margin:7px 0; border-radius:16px; font-size:14px;
+       white-space:pre-line; line-height:1.45; word-wrap:break-word; }
+  .bot { background:#fff; color:#1b2430; border-bottom-left-radius:4px; box-shadow:0 2px 8px rgba(20,40,100,.08); }
+  .me  { background:linear-gradient(90deg,#1747d1,#0aa5b8); color:#fff; margin-left:auto; border-bottom-right-radius:4px; }
+  .bot.bad { background:#fdeaea; color:#a12121; }
+  #quick { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  .wrap #quick button { width:auto; margin:0; padding:9px 16px; font-size:13px; background:#fff; color:#1747d1;
+          border:1.5px solid #1747d1; border-radius:20px; box-shadow:none; }
+  .wrap #quick button:hover { background:#1747d1; color:#fff; }
+  #chatRow { display:flex; gap:8px; margin-top:12px; align-items:center; }
+  #chatRow input { flex:1; }
+  .wrap #chatRow button { width:auto; margin:0; padding:0 20px; height:46px; }
+  .wrap .mic { width:46px; padding:0; display:grid; place-items:center; background:#eef2ff; color:#1747d1;
+          border:1px solid #cbd6ff; border-radius:50%; box-shadow:none; }
+  .wrap .mic.on { background:#e5384d; color:#fff; border-color:#e5384d; animation:pulse 1.1s infinite; }
+  @keyframes pulse { 0% { box-shadow:0 0 0 0 rgba(229,56,77,.5); } 100% { box-shadow:0 0 0 14px rgba(229,56,77,0); } }
+  /* ---------- Virtual assistant (the lady) ---------- */
+  .agent { display:flex; align-items:center; gap:16px; padding:14px 18px; margin-bottom:12px; border-radius:18px;
+           background:linear-gradient(135deg,#eaf1ff,#e0f7f4); border:1px solid #d6e3fb; transition:box-shadow .3s; }
+  .agent.speak { box-shadow:0 0 0 3px rgba(23,71,209,.25); }
+  .agent.listen { box-shadow:0 0 0 3px rgba(18,165,106,.5); }
+  .agent.think { box-shadow:0 0 0 3px rgba(224,160,30,.45); }
+  .avwrap { width:104px; height:104px; border-radius:50%; overflow:hidden; flex:none;
+            background:linear-gradient(160deg,#cfe0ff,#c9f3ee); box-shadow:0 6px 18px rgba(23,50,120,.2);
+            animation:floaty 5s ease-in-out infinite; }
+  .avwrap svg { width:100%; height:100%; display:block; }
+  @keyframes floaty { 50% { transform:translateY(-3px); } }
+  .ainfo b { display:block; font-size:18px; color:#0b1f5c; }
+  .ainfo span { display:block; font-size:13px; color:#51608a; margin-top:2px; }
+  .ainfo small { display:block; margin-top:6px; font-size:12px; color:#12a56a; }
+  #av .eyes { animation:blink 4.2s infinite; transform-box:fill-box; transform-origin:center; }
+  @keyframes blink { 0%,93%,100% { transform:scaleY(1); } 96% { transform:scaleY(.08); } }
+  #av .mopen { display:none; transform-box:fill-box; transform-origin:center; }
+  #av.talking .smile { display:none; }
+  #av.talking .mopen { display:block; animation:talk .3s infinite alternate; }
+  @keyframes talk { from { transform:scaleY(.2); } to { transform:scaleY(1); } }
+  @media (prefers-reduced-motion:reduce) { .avwrap, #av .eyes { animation:none; } }
+</style>
+<style>
+  #camModal{display:none;position:fixed;inset:0;z-index:9999;background:rgba(10,20,50,.78);align-items:center;justify-content:center;padding:12px}
+  .camcard{background:#fff;border-radius:18px;padding:16px;max-width:560px;width:100%;box-sizing:border-box}
+  .camtitle{font-weight:700;color:#0b1f5c;margin-bottom:10px}
+  .camview{position:relative;background:#000;border-radius:12px;overflow:hidden;aspect-ratio:4/3}
+  .camview video,.camview img{width:100%;height:100%;object-fit:cover;display:block}
+  .camguide{position:absolute;inset:10% 8%;border:3px dashed rgba(255,255,255,.9);border-radius:10px;pointer-events:none}
+  #camCount{position:absolute;inset:0;display:grid;place-items:center;font-size:90px;color:#fff;font-weight:800;text-shadow:0 2px 10px rgba(0,0,0,.6);pointer-events:none}
+  .camhint{font-size:13px;color:#51608a;margin:10px 0}
+  .camrow{display:flex;gap:8px;flex-wrap:wrap}
+  .camrow button{margin:0;flex:1;width:auto;padding:11px;font-size:14px;background:#1747d1;color:#fff;border:0;border-radius:10px;cursor:pointer}
+</style>
+<input type="file" id="chatFile" accept=".pdf,.jpg,.jpeg,.png" style="display:none">
+
+<script>
+(function () {
+  var VOICE_LANG = 'en-IN';   // speech language: 'en-IN', 'en-US', 'en-GB' ...
+  function $(id) { return document.getElementById(id); }
+
+  var SVG_MIC = '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>';
+  var SVG_SPK = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>';
+  var SVG_LADY = '<svg viewBox="15 5 170 170" xmlns="http://www.w3.org/2000/svg">' +
+    '<path d="M45 95C40 40 70 18 100 18C130 18 160 40 155 95C158 140 152 172 142 190L58 190C48 172 42 140 45 95Z" fill="#2a1b16"/>' +
+    '<rect x="88" y="124" width="24" height="44" rx="10" fill="#e9b996"/>' +
+    '<path d="M28 190C30 172 58 160 100 160C142 160 170 172 172 190L172 200L28 200Z" fill="#0b1f5c"/>' +
+    '<path d="M80 162L100 192L120 162Z" fill="#fff"/>' +
+    '<path d="M80 162L94 200L100 192Z M120 162L106 200L100 192Z" fill="#17317f"/>' +
+    '<ellipse cx="100" cy="92" rx="38" ry="46" fill="#f3c9a8"/>' +
+    '<path d="M62 82C62 46 84 31 104 33C130 35 141 57 138 82C128 64 112 56 92 58C78 60 68 69 62 82Z" fill="#2a1b16"/>' +
+    '<path d="M78 77Q86 72 94 76M106 76Q114 72 122 77" stroke="#2a1b16" stroke-width="2.4" fill="none" stroke-linecap="round"/>' +
+    '<g class="eyes"><ellipse cx="86" cy="89" rx="7" ry="5" fill="#fff"/><circle cx="86" cy="89" r="3.6" fill="#4a2c1d"/><circle cx="86" cy="89" r="1.7" fill="#111"/><circle cx="87.3" cy="87.8" r="1" fill="#fff"/>' +
+    '<ellipse cx="114" cy="89" rx="7" ry="5" fill="#fff"/><circle cx="114" cy="89" r="3.6" fill="#4a2c1d"/><circle cx="114" cy="89" r="1.7" fill="#111"/><circle cx="115.3" cy="87.8" r="1" fill="#fff"/></g>' +
+    '<path d="M79 85Q86 81 93 85M107 85Q114 81 121 85" stroke="#1a100c" stroke-width="1.6" fill="none"/>' +
+    '<path d="M100 95Q96 107 100 110Q104 111 106 108" stroke="#d79f7e" stroke-width="1.6" fill="none" stroke-linecap="round"/>' +
+    '<circle cx="76" cy="107" r="6" fill="#f19a8f" opacity=".35"/><circle cx="124" cy="107" r="6" fill="#f19a8f" opacity=".35"/>' +
+    '<path class="smile" d="M89 121Q100 130 111 121" stroke="#b8434f" stroke-width="3.2" fill="none" stroke-linecap="round"/>' +
+    '<g class="mopen"><ellipse cx="100" cy="123" rx="8.5" ry="6" fill="#7a1f2b"/><ellipse cx="100" cy="126" rx="4.5" ry="2.2" fill="#e86f7e"/></g>' +
+    '<path d="M60 92C57 40 80 22 100 22C122 22 143 40 140 92" stroke="#1b2740" stroke-width="4" fill="none"/>' +
+    '<ellipse cx="60" cy="98" rx="7" ry="12" fill="#1b2740"/><ellipse cx="140" cy="98" rx="7" ry="12" fill="#1b2740"/>' +
+    '<path d="M140 108C143 130 127 137 112 131" stroke="#1b2740" stroke-width="3" fill="none"/><circle cx="110" cy="130" r="3.6" fill="#1b2740"/>' +
+    '</svg>';
+  var SVG_DOC = '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M6 2h8l6 6v14H6V2zm7 1.5V9h5.5L13 3.5zM8 13h8v2H8v-2zm0 4h8v2H8v-2z"/></svg>';
+  var SVG_CHAT = '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M4 4h16v12H8l-4 4V4zm4 4v2h8V8H8zm0 3v2h5v-2H8z"/></svg>';
+
+  // ---- Page structure: hero + start screen + form + chat ----
+  document.body.insertAdjacentHTML('afterbegin',
+    '<header id="hero"><div class="txt">' +
+    '<div class="brandbar"><img class="zlogo" alt="Zensar" src="data:image/png;base64,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"><span class="pill">Digital Banking</span></div>' +
+    '<h1 class="title">Smart Onboarding Engine</h1>' +
+    '<div class="chips"><span>Paperless</span><span>AI-assisted verification</span><span>Digital first</span></div></div>' +
+    '</header>');
+
+  var form = document.querySelector('.wrap');
+  form.id = 'formMode';
+  form.style.display = 'none';
+  var fh = form.querySelector('h1'); if (fh) fh.textContent = 'Application Form';
+  form.insertAdjacentHTML('afterbegin', '<button class="linkbtn" id="backFromForm">&larr; Back</button>');
+  form.insertAdjacentHTML('beforebegin',
+    '<div class="wrap" id="choice"><h2>Open your account</h2>' +
+    '<p style="margin:0;color:#51608a">Choose how you would like to continue.</p><div class="opts">' +
+    '<button class="opt" id="goChat"><em>Recommended</em><span class="ico">' + SVG_CHAT + '</span><b>Chat with AI assistant</b>' +
+    '<small>Upload your documents and confirm the details. Voice supported.</small></button>' +
+    '<button class="opt" id="goForm"><span class="ico">' + SVG_DOC + '</span><b>Fill in the form</b>' +
+    '<small>Type your details and upload your documents yourself.</small></button></div></div>' +
+    '<div class="wrap" id="chatMode" style="display:none"><div class="chead">' +
+    '<button class="linkbtn" id="backFromChat">&larr; Back</button>' +
+    '<button class="vbtn" id="voiceBtn" type="button">' + SVG_SPK + '<span>Voice off</span></button></div>' +
+    '<div class="agent" id="agent"><div class="avwrap" id="av">' + SVG_LADY + '</div><div class="ainfo"><b>Aria</b><span>Virtual Banking Assistant</span><small id="astatus">\u25CF Online</small></div></div>' +
+    '<div id="chatBox"></div><div id="quick"></div>' +
+    '<div id="chatRow"><button class="mic" id="micBtn" type="button" title="Speak your answer">' + SVG_MIC + '</button>' +
+    '<input type="text" id="chatIn" placeholder="Type here only if needed..." autocomplete="off">' +
+    '<button id="chatSend">Send</button></div></div>');
+  document.body.insertAdjacentHTML('afterbegin', '<div id="p8">Project 5</div>');
+
+  function screen(id) {
+    ['choice', 'formMode', 'chatMode'].forEach(function (x) {
+      $(x).style.display = (x === id) ? 'block' : 'none';
+    });
+    document.body.classList.toggle('compact', id !== 'choice');
+    if (id !== 'chatMode') stopVoice();
+    window.scrollTo(0, 0);
+  }
+
+  var box = $('chatBox'), quick = $('quick'), inp = $('chatIn'), micBtn = $('micBtn'), voiceBtn = $('voiceBtn');
+  var PH = inp.placeholder;
+  var type = '', fields = [], ans = {}, cand = {}, manual = {}, EX = [];
+  var cur = null, pending = [], started = false, busy = false, extracted = false;
+
+  var EXTRACT = {
+    'Retail': ['name', 'dob', 'ssn', 'addr1', 'addr2', 'zip', 'city', 'state'],
+    'Business': ['bname', 'lei', 'ein'],
+        'Foreign National': ['fname', 'dob', 'nat', 'ppno', 'ppexp', 'visatype', 'visano', 'visaexp']
+  };
+  var ADDR = ['addr1', 'addr2', 'zip', 'city', 'state'];
+  var SENS = ['ssn', 'ppno', 'visano', 'lei', 'ein'];   // never read aloud
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  $('goForm').onclick = function () { screen('formMode'); };
+  $('goChat').onclick = function () {
+    screen('chatMode');
+    if (!started) { started = true; setVoice(true, false); start(); }
+  };
+  $('backFromForm').onclick = function () { screen('choice'); };
+  $('backFromChat').onclick = function () { screen('choice'); };
+
+  // ================= VOICE =================
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var synth = window.speechSynthesis;
+  var voiceOn = false, rec = null, listening = false, recording = false, speaking = 0;
+  var noAuto = false, useRecorder = !SR, lady = null, tt = null;
+  var av = $('av'), stat = $('astatus'), panel = $('agent');
+
+  function setStat(t, mode) { stat.textContent = '\u25CF ' + t; panel.className = 'agent ' + (mode || ''); }
+  function talkFor(ms) {
+    av.classList.add('talking'); clearTimeout(tt);
+    tt = setTimeout(function () { if (!speaking) av.classList.remove('talking'); }, ms);
+  }
+  function note(t) { say(t, 'bot', false); }   // shown, never spoken
+
+  // Pick a female voice (Neerja, Heera, Zira, Samantha, Google UK English Female ...)
+  function pickVoice() {
+    var vs = synth ? synth.getVoices() : [];
+    if (!vs.length) return null;
+    var fem = /female|neerja|heera|veena|zira|samantha|susan|hazel|aria|jenny|karen|tessa|moira|fiona|libby|sonia|natasha|catherine/i;
+    var lang = VOICE_LANG.toLowerCase(), base = lang.slice(0, 2);
+    function first(f) { return vs.filter(f)[0]; }
+    return first(function (v) { return v.lang.toLowerCase() === lang && fem.test(v.name); }) ||
+           first(function (v) { return v.lang.toLowerCase().indexOf(base) === 0 && fem.test(v.name); }) ||
+           first(function (v) { return v.lang.toLowerCase() === lang; }) ||
+           first(function (v) { return v.lang.toLowerCase().indexOf(base) === 0; }) || null;
+  }
+  if (synth) { lady = pickVoice(); synth.onvoiceschanged = function () { lady = pickVoice(); }; }
+
+  function speak(text) {
+    if (!voiceOn || !synth || !text) return;
+    var t = String(text).replace(/,?\s*for example [^.\n]*/gi, '')
+      .replace(/\d[\d\s-]{4,}\d/g, 'the number shown on screen')
+      .replace(/[\u2022\u25CF]+/g, '').replace(/\n+/g, '. ');
+    var u = new SpeechSynthesisUtterance(t);
+    var v = lady || pickVoice();
+    if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = VOICE_LANG; }
+    u.pitch = 1.05;
+    speaking++;
+    u.onstart = function () { av.classList.add('talking'); setStat('Speaking...', 'speak'); };
+    u.onend = u.onerror = function () {
+      speaking = Math.max(0, speaking - 1);
+      if (!speaking) { av.classList.remove('talking'); setStat('Online', ''); afterSpeech(); }
+    };
+    synth.speak(u);
+  }
+
+  function canAnswer() {
+    if (busy || recording) return false;
+    if (cur && cur.type === 'file') return false;
+    return !!cur || quick.children.length > 0;
+  }
+  function afterSpeech() { if (voiceOn && !noAuto && canAnswer()) listen(); }
+
+  function setListenUI(on) {
+    listening = on;
+    micBtn.classList.toggle('on', on);
+    inp.placeholder = on ? 'Listening...' : PH;
+    if (on) setStat('Listening...', 'listen');
+    else if (!speaking && !busy) setStat('Online', '');
+  }
+  function micFail(msg) { noAuto = true; setListenUI(false); bad(msg); }
+
+  function listen() {
+    if (listening || recording || busy) return;
+    if (useRecorder) recListen(); else webListen();
+  }
+
+  // Method 1: the browser's own speech recognition
+  function webListen() {
+    var r;
+    try { r = new SR(); } catch (e) { useRecorder = true; recListen(); return; }
+    rec = r;
+    r.lang = VOICE_LANG; r.interimResults = false; r.maxAlternatives = 1;
+    r.onstart = function () { setListenUI(true); };
+    r.onresult = function (e) { onVoice(e.results[0][0].transcript.trim()); };
+    r.onerror = function (e) {
+      var c = e.error;
+      if (c === 'aborted') return;
+      if (c === 'no-speech') { noAuto = true; note('I did not hear anything. Tap the mic and speak again.'); return; }
+      // Speech service not usable here: switch to the recorder method
+      useRecorder = true; setListenUI(false);
+      note('The browser voice service did not work (' + c + '). Switching to another method...');
+      setTimeout(recListen, 250);
+    };
+    r.onend = function () { if (!recording) setListenUI(false); };
+    try { r.start(); } catch (e) {}
+  }
+
+  // Method 2: record the voice and let Gemini convert it to text (works in any browser with a microphone)
+  var rctx = null, rstream = null, rproc = null, rchunks = [];
+  function recListen() {
+    if (recording) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      micFail('This browser cannot use the microphone on this page. Please type or tap your answers.');
+      return;
+    }
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      rctx = new AC(); rstream = stream;
+      var src = rctx.createMediaStreamSource(stream);
+      rproc = rctx.createScriptProcessor(4096, 1, 1);
+      rchunks = []; recording = true; setListenUI(true);
+      var started = false, quiet = 0, total = 0, ms = 4096 / rctx.sampleRate * 1000;
+      rproc.onaudioprocess = function (ev) {
+        var d = ev.inputBuffer.getChannelData(0);
+        rchunks.push(new Float32Array(d));
+        var sum = 0; for (var i = 0; i < d.length; i++) sum += d[i] * d[i];
+        total += ms;
+        if (Math.sqrt(sum / d.length) > 0.02) { started = true; quiet = 0; } else if (started) { quiet += ms; }
+        if ((started && quiet > 1300) || total > 9000 || (!started && total > 6000)) finishRec(started);
+      };
+      src.connect(rproc); rproc.connect(rctx.destination);
+    }).catch(function (e) {
+      micFail('The browser did not give microphone access (' + (e && e.name ? e.name : 'error') + '). ' +
+        'Click the lock icon next to the page address, set Microphone to Allow, reload the page and try again. You can keep typing meanwhile.');
+    });
+  }
+
+  function releaseRec() {
+    recording = false;
+    try { rproc.disconnect(); } catch (e) {}
+    try { rstream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+    try { rctx.close(); } catch (e) {}
+  }
+
+  function finishRec(started) {
+    if (!recording) return;
+    var rate = rctx.sampleRate;
+    releaseRec(); setListenUI(false);
+    if (!started) { noAuto = true; note('I did not hear anything. Tap the mic and speak again.'); return; }
+    var wav = toWav(rchunks, rate);
+    busy = true; setStat('Understanding...', 'think');
+    google.script.run
+      .withSuccessHandler(function (r) {
+        busy = false; setStat('Online', '');
+        var t = ((r && r.text) || '').trim();
+        if (t) onVoice(t); else { noAuto = true; note('Sorry, I could not understand that. Please try again, or type.'); }
+      })
+      .withFailureHandler(function (e) {
+        busy = false; setStat('Online', '');
+        micFail('Voice recognition failed (' + e.message + '). Please type or tap your answers.');
+      })
+      .transcribeAudio(wav, 'audio/wav');
+  }
+
+  // Recorded audio -> 16 kHz mono WAV (base64)
+  function toWav(chunks, rate) {
+    var n = 0; chunks.forEach(function (c) { n += c.length; });
+    var all = new Float32Array(n), o = 0;
+    chunks.forEach(function (c) { all.set(c, o); o += c.length; });
+    var ratio = rate / 16000, len = Math.floor(n / ratio), pcm = new Int16Array(len);
+    for (var i = 0; i < len; i++) {
+      var from = Math.floor(i * ratio), to = Math.max(from + 1, Math.floor((i + 1) * ratio)), sum = 0;
+      for (var k = from; k < to && k < n; k++) sum += all[k];
+      var x = Math.max(-1, Math.min(1, sum / (to - from)));
+      pcm[i] = x < 0 ? x * 0x8000 : x * 0x7FFF;
+    }
+    var buf = new ArrayBuffer(44 + len * 2), v = new DataView(buf);
+    function ws(off, str) { for (var j = 0; j < str.length; j++) v.setUint8(off + j, str.charCodeAt(j)); }
+    ws(0, 'RIFF'); v.setUint32(4, 36 + len * 2, true); ws(8, 'WAVE'); ws(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, 16000, true); v.setUint32(28, 32000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    ws(36, 'data'); v.setUint32(40, len * 2, true);
+    new Int16Array(buf, 44).set(pcm);
+    var bytes = new Uint8Array(buf), bin = '';
+    for (var p = 0; p < bytes.length; p += 8192) bin += String.fromCharCode.apply(null, bytes.subarray(p, p + 8192));
+    return btoa(bin);
+  }
+
+  function stopVoice() {
+    if (synth) synth.cancel();
+    speaking = 0; av.classList.remove('talking');
+    if (recording) { releaseRec(); }
+    if (listening && rec) { try { rec.abort(); } catch (e) {} }
+    setListenUI(false);
+  }
+
+  // Spoken answer: tap a matching button, otherwise treat it as typed text
+  function onVoice(t) {
+    noAuto = false;
+    var q = t.toLowerCase().replace(/[.,!?]/g, '').trim();
+    var bs = [].slice.call(quick.querySelectorAll('button'));
+    if (bs.length) {
+      var yes = /^(yes|yeah|yep|correct|right|that is correct|thats correct|it is correct)$/.test(q);
+      var no = /^(no|nope|wrong|incorrect|that is wrong|thats wrong)$/.test(q);
+      var hit = null;
+      bs.forEach(function (b) {
+        var l = b.textContent.toLowerCase();
+        if (!hit && ((yes && l === 'correct') || (no && l === 'wrong') || q === l || (q.length > 2 && l.indexOf(q) > -1))) hit = b;
+      });
+      if (hit) { hit.click(); return; }
+    }
+    if (cur && cur.type !== 'file' && cur.type !== 'acct') { inp.value = t; send(); return; }
+    say('Sorry, I did not catch a matching option. Please say one of the options or tap a button.', 'bad');
+  }
+
+  micBtn.onclick = function () {
+    if (recording) { finishRec(true); return; }
+    if (listening && rec) { try { rec.stop(); } catch (e) {} return; }
+    if (synth) synth.cancel();
+    speaking = 0; av.classList.remove('talking');
+    noAuto = false;
+    listen();
+  };
+
+  function setVoice(on, announce) {
+    if (on && !synth) { if (announce) bad('Your browser cannot speak aloud. Please use a recent Chrome, Edge or Safari.'); return; }
+    voiceOn = on;
+    voiceBtn.classList.toggle('on', on);
+    voiceBtn.querySelector('span').textContent = on ? 'Voice on' : 'Voice off';
+    if (on) { noAuto = false; if (announce) say('Voice mode is on. I will speak and listen. You can also tap or type.'); }
+    else stopVoice();
+  }
+  voiceBtn.onclick = function () { setVoice(!voiceOn, true); };
+
+  // ================= CHAT =================
+  function say(t, cls, spoken) {
+    var d = document.createElement('div');
+    d.className = 'b ' + (cls === 'me' ? 'me' : 'bot') + (cls === 'bad' ? ' bad' : '');
+    d.textContent = t;
+    box.appendChild(d);
+    box.scrollTop = box.scrollHeight;
+    if (cls !== 'me') {
+      if (spoken !== false) speak(spoken || t);
+      if (!voiceOn) talkFor(Math.min(3000, 300 + t.length * 35));
+    }
+  }
+  function bad(m) { say(m, 'bad'); }
+
+  function buttons(list) {
+    quick.innerHTML = '';
+    list.forEach(function (it) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = it.t;
+      b.onclick = function () {
+        if (busy) return;
+        if (!it.q) { quick.innerHTML = ''; say(it.t, 'me'); }
+        it.f();
+      };
+      quick.appendChild(b);
+    });
+  }
+
+  function short(f) { return f.label.replace(/\s*\(.*\)\s*$/, ''); }
+  function byId(id) {
+    for (var i = 0; i < fields.length; i++) if (fields[i].id === id) return fields[i];
+    return null;
+  }
+  function vis(f) { return !f.showIf || ans[f.showIf.id] === f.showIf.value; }
+  function mask(v) { return '\u2022\u2022\u2022-\u2022\u2022-' + String(v).replace(/\D/g, '').slice(-4); }
+  function isDate(f) { return f.type === 'dob' || f.type === 'dobdmy' || f.type === 'expdmy'; }
+  function showVal(f, v) {
+    if (isDate(f) && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v.slice(8) + ' ' + MONTHS[+v.slice(5, 7) - 1] + ' ' + v.slice(0, 4);
+    return v;
+  }
+
+  var DATE_TIP = ' You can also say it, like 5 March 1990.';
+  var HINT = {
+    dob: 'Format ' + DOB_PLACEHOLDER + '. You must be at least ' + MIN_AGE + ' years old.' + DATE_TIP,
+    dobdmy: 'Format DD-MM-YYYY. You must be at least ' + MIN_AGE + ' years old.' + DATE_TIP,
+    expdmy: 'Format DD-MM-YYYY.' + DATE_TIP,
+    ssn: '9 digits, for example 123-45-6789',
+    lei: '20 letters and digits, no spaces',
+    ein: '9 digits, for example 12-3456789',
+    zip: '5-digit ZIP code',
+    file: 'Attach a PDF, JPG or PNG, max ' + MAX_MB + ' MB'
+  };
+
+  function start() {
+    say('Hello! I am Aria, your virtual banking assistant. Which type of account would you like to open?');
+    cur = { type: 'acct' };
+    buttons([
+      { t: 'Retail Account',           f: function () { setType('Retail'); } },
+      { t: 'Business Account',         f: function () { setType('Business'); } },
+      { t: 'Foreign National Account', f: function () { setType('Foreign National'); } }
+    ]);
+  }
+
+  function setType(t) {
+    type = t; fields = SCHEMA[t]; EX = EXTRACT[t];
+    ans = {}; cand = {}; manual = {}; pending = []; extracted = false; cur = null; quick.innerHTML = '';
+        say('Great choice! First, I need your consent.');
+    next();
+  }
+
+  function next() {
+        var cf = byId('consent');
+    if (cf && !(cf.id in ans)) { ask(cf); return; }
+    var i, f;
+    for (i = 0; i < fields.length; i++) {
+      f = fields[i];
+      if (f.type === 'file' && vis(f) && !(f.id in ans)) { ask(f); return; }
+    }
+    if (!extracted) { extract(); return; }
+    for (i = 0; i < fields.length; i++) {
+      f = fields[i];
+      if (f.type === 'file') continue;
+      if (!vis(f)) { delete ans[f.id]; continue; }
+      if (f.id in ans) continue;
+      if (f.id === 'addr1' && !manual.addr1 && addrOk()) { confirmAddress(); return; }
+      var c = cand[f.id];
+      if (EX.indexOf(f.id) > -1 && ADDR.indexOf(f.id) < 0 && !manual[f.id]) {
+        if (c) {
+          var r = check(f, c, true);
+          if (!r.err) { confirmField(f, r.v); return; }
+          bad('I read "' + showVal(f, c) + '" for ' + short(f) + ', but: ' + r.err);
+        }
+        ask(f, 'I could not read this from your documents.\n');
+        return;
+      }
+      ask(f);
+      return;
+    }
+    if (pending.length) { say('Is there anything else to fix?'); hub(pending); }
+    else confirmStep();
+  }
+
+  function ask(f, note) {
+        if (f.type === 'consent') {
+      cur = f; quick.innerHTML = '';
+      say('Consent\n' + CONSENT_TEXT + '\n(Version ' + CONSENT_VERSION + ')\n\nDo you agree?', 'bot',
+          'Before we begin, please read the consent notice on screen. Do you agree?');
+      buttons([
+        { t: 'I agree', f: function () {
+            ans[f.id] = 'Agreed';
+            say('Thank you. Please upload the documents for this account, one at a time. I will read them, so you only need to confirm the details.');
+            next(); } },
+        { t: 'I do not agree', f: function () {
+            say('I understand. Without your consent I cannot open an account online. You can come back any time.');
+            buttons([{ t: 'Read the consent again', f: function () { ask(f); } }]); } }
+      ]);
+      return;
+    }
+    cur = f; quick.innerHTML = '';
+    var base = (note || '') + f.label + (f.optional ? ' (optional)' : '');
+    var t = base + (HINT[f.type] ? '\n' + HINT[f.type] : '');
+    if (f.type === 'select' && f.options.length > 12) t += '\nType or say a few letters and I will find it.';
+    say(t, 'bot', f.type === 'file' ? base + '. Please attach it using the Attach file button.' : t);
+    var list = [];
+    if (f.type === 'select' && f.options.length <= 12) {
+      f.options.forEach(function (o) { list.push({ t: o, f: function () { ans[f.id] = o; next(); } }); });
+    }
+        if (f.type === 'file') list.push({ t: 'Scan with camera', q: true, f: function () { openCamera(f); } });
+    if (f.type === 'file') list.push({ t: 'Attach file', q: true, f: function () { $('chatFile').click(); } });
+    if (f.optional) list.push({ t: 'Skip', f: function () { ans[f.id] = ''; next(); } });
+    if (list.length) buttons(list);
+  }
+
+  // ---- Reading the documents ----
+  function extract() {
+    busy = true; cur = null; quick.innerHTML = '';
+    say('Reading your documents. This can take a little while...');
+    var docs = [];
+    fields.forEach(function (f) {
+      if (f.type === 'file' && ans[f.id]) {
+        docs.push({ id: f.id, label: f.label, base64: ans[f.id].base64, mimeType: ans[f.id].mimeType });
+      }
+    });
+    google.script.run
+      .withSuccessHandler(function (r) {
+        busy = false; extracted = true;
+        cand = (r && r.fields) || {};
+        var n = Object.keys(cand).filter(function (k) { return cand[k]; }).length;
+        if (!n) {
+          bad((r && r.error) || 'I could not read any details from these documents.');
+          buttons([
+            { t: 'Upload documents again', f: reupload },
+            { t: 'Enter details myself', f: next }
+          ]);
+          return;
+        }
+        say('Thank you! I found these details in your documents. Please confirm each one.');
+        next();
+      })
+      .withFailureHandler(function (e) {
+        busy = false; extracted = true; cand = {};
+        bad('I could not read the documents automatically (' + e.message + '). I will ask for the details instead.');
+        next();
+      })
+      .extractDetails(type, docs, { nat: COUNTRIES, visatype: VISA_TYPES });
+  }
+
+  function reupload() {
+    fields.forEach(function (f) {
+      if (f.type === 'file' || EX.indexOf(f.id) > -1) delete ans[f.id];
+    });
+    cand = {}; manual = {}; extracted = false; pending = [];
+    say('Please upload your documents again.');
+    next();
+  }
+
+  // ---- Confirming details: Correct / Wrong ----
+  function wrong(typeFn) {
+    say('What would you like to do?');
+    buttons([
+      { t: 'Type the correct value', f: typeFn },
+      { t: 'Upload documents again', f: reupload }
+    ]);
+  }
+
+  function confirmField(f, v) {
+    cur = null; quick.innerHTML = '';
+    var spoken = SENS.indexOf(f.id) > -1
+      ? short(f) + ' is shown on screen. Is it correct?'
+      : short(f) + ': ' + showVal(f, v) + '. Is this correct?';
+    say(short(f) + ': ' + showVal(f, v) + '\nIs this correct?', 'bot', spoken);
+    buttons([
+      { t: 'Correct', f: function () { ans[f.id] = v; next(); } },
+      { t: 'Wrong',   f: function () { wrong(function () { manual[f.id] = true; ask(f); }); } }
+    ]);
+  }
+
+  function addrOk() {
+    return cand.addr1 && cand.city && cand.state && /^\d{5}$/.test(cand.zip || '');
+  }
+  function confirmAddress() {
+    cur = null; quick.innerHTML = '';
+    var a = [cand.addr1, cand.addr2, cand.city, cand.state + ' ' + cand.zip].filter(Boolean).join(', ');
+    say('Address: ' + a + '\nIs this correct?', 'bot', 'Your address is shown on screen. Is it correct?');
+    buttons([
+      { t: 'Correct', f: function () { ADDR.forEach(function (id) { ans[id] = cand[id] || ''; }); next(); } },
+      { t: 'Wrong',   f: function () {
+          wrong(function () { ADDR.forEach(function (id) { manual[id] = true; }); next(); });
+      } }
+    ]);
+  }
+
+  // ---- Typed or spoken answers ----
+  function iso(t) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
+    if (!m) return null;
+    var d = new Date(+m[1], +m[2] - 1, +m[3]);
+    return (d.getFullYear() === +m[1] && d.getMonth() === +m[2] - 1 && d.getDate() === +m[3]) ? t : null;
+  }
+  // "5th March 1990" -> 1990-03-05
+  function spokenIso(t) {
+    var s = t.replace(/(\d)(st|nd|rd|th)\b/gi, '$1').replace(/\bof\b/gi, ' ').replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
+    var d = new Date(s);
+    if (isNaN(d)) return null;
+    var y = d.getFullYear();
+    if (y < 1900 || y > 2200) return null;
+    return y + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+  function dateIn(t, fn) { return /[a-z]/i.test(t) ? spokenIso(t) : fn(t); }
+
+  function check(f, t, doc) {
+    var v, young = 'You must be at least ' + MIN_AGE + ' years old to open an account.';
+    switch (f.type) {
+      case 'ssn':
+        v = fmtSSN(t, false);
+                if (!/^\d{3}-\d{2}-\d{4}$/.test(v)) return { err: 'SSN must be 9 digits, for example 123-45-6789.' };
+        return ssnRuleError(v) ? { err: ssnRuleError(v) } : { v: v };
+      case 'dob':
+        v = doc ? iso(t) : dateIn(t, function (x) { return parseDOB(fmtDOB(x, false)); });
+        if (!v || v > todayStr()) return { err: 'Please enter a valid past date as ' + DOB_PLACEHOLDER + '.' };
+        return isAdult(v) ? { v: v } : { err: young };
+      case 'dobdmy':
+        v = doc ? iso(t) : dateIn(t, function (x) { return parseDMY(fmtDMY(x, false)); });
+        if (!v || v > todayStr()) return { err: 'Please enter a valid past date as DD-MM-YYYY.' };
+        return isAdult(v) ? { v: v } : { err: young };
+      case 'expdmy':
+        v = doc ? iso(t) : dateIn(t, function (x) { return parseDMY(fmtDMY(x, false)); });
+        if (!v) return { err: 'Please enter a valid date as DD-MM-YYYY.' };
+               if (v < todayStr()) return { err: 'This document has expired. The date cannot be in the past.' };
+        if (f.id === 'ppexp' && v < addMonthsIso(PASSPORT_MIN_MONTHS)) return { err: 'The passport must be valid for at least ' + PASSPORT_MIN_MONTHS + ' more months.' };
+        if (f.id === 'visaexp' && VISA_MUST_END_WITH_PASSPORT && ans.ppexp && v > ans.ppexp) return { err: 'The visa expiry cannot be later than the passport expiry.' };
+        return { v: v };
+      case 'lei':
+        v = t.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (validLEI(v)) return { v: v };
+        return { err: /^[A-Z0-9]{20}$/.test(v)
+          ? 'This LEI is not valid (the check code does not match). Please re-check it.'
+          : 'LEI must be exactly 20 letters and digits.' };
+      case 'ein':
+        v = fmtEIN(t, false);
+                if (!/^\d{2}-\d{7}$/.test(v)) return { err: 'EIN must be 9 digits, for example 12-3456789.' };
+        return (CHECK_EIN_PREFIX && !einPrefixOk(v)) ? { err: 'This EIN does not start with a valid IRS prefix.' } : { v: v };
+              case 'email':
+        v = t.toLowerCase().replace(/\s+at\s+/g, '@').replace(/\s+dot\s+/g, '.').replace(/\s+/g, '');
+        return emailOk(v) ? { v: v } : { err: 'Please enter a valid email address, like name@example.com.' };
+      case 'select':
+        return f.options.indexOf(t) > -1 ? { v: t } : { err: 'Not a valid option.' };
+      default:
+        return { v: t };
+    }
+  }
+
+  function send() {
+    var t = inp.value.trim();
+    if (!t || busy) return;
+    inp.value = '';
+    if (!cur) { bad('Please tap or say one of the options.'); return; }
+    if (cur.type === 'file') { bad('Please use the "Attach file" button to upload this document.'); return; }
+    say(cur.type === 'ssn' ? mask(t) : t, 'me');
+    if (cur.type === 'acct') {
+      var q = t.toLowerCase();
+      if (/retail/.test(q)) setType('Retail');
+      else if (/business/.test(q)) setType('Business');
+      else if (/foreign/.test(q)) setType('Foreign National');
+      else bad('Please choose Retail, Business or Foreign National.');
+      return;
+    }
+    handle(cur, t);
+  }
+  $('chatSend').onclick = send;
+  inp.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); send(); }
+  });
+
+  function handle(f, t) {
+        if (f.type === 'consent') {
+      if (/^(i )?(agree|yes|accept)/i.test(t)) {
+        ans[f.id] = 'Agreed';
+        say('Thank you. Please upload the documents for this account, one at a time. I will read them, so you only need to confirm the details.');
+        next();
+      } else bad('Please say or tap "I agree" to continue.');
+      return;
+    }
+    if (f.type === 'select') return pick(f, t);
+    if (f.type === 'zip') return zip(f, t);
+    var r = check(f, t, false);
+    if (r.err) return bad(r.err);
+    ans[f.id] = r.v;
+    next();
+  }
+
+  function pick(f, t) {
+    var q = t.toLowerCase().replace(/[.,!?]/g, '').trim(), o = f.options;
+    var m = o.filter(function (x) { return x.toLowerCase() === q; });
+    if (!m.length) m = o.filter(function (x) { return x.toLowerCase().indexOf(q) > -1; });
+    if (m.length === 1) { ans[f.id] = m[0]; say('Selected: ' + m[0]); next(); return; }
+    if (!m.length) return bad('I could not find that option. Please try again.');
+    say('Which one do you mean?');
+    buttons(m.slice(0, 8).map(function (x) {
+      return { t: x, f: function () { ans[f.id] = x; next(); } };
+    }));
+  }
+
+  function zip(f, t) {
+    var z = t.replace(/\D/g, '');
+    if (!/^\d{5}$/.test(z)) return bad('Please enter a 5-digit ZIP code.');
+        email: 'Please type your email address (spelling an email by voice is unreliable).',
+    busy = true;
+    say('Looking up city and state...');
+    function finish(r) {
+      busy = false;
+      ans[f.id] = z;
+      delete ans[f.cityId]; delete ans[f.stateId];
+      manual[f.cityId] = true; manual[f.stateId] = true;
+      if (r && r.found && r.city && r.state) {
+        ans[f.cityId] = r.city; ans[f.stateId] = r.state;
+        say('Found: ' + r.city + ', ' + r.state);
+      } else {
+        say('I could not fill in the city and state automatically. Please type them in.');
+      }
+      next();
+    }
+    google.script.run.withSuccessHandler(finish).withFailureHandler(function () { finish(null); })
+      .lookupZip(f.country || 'US', z);
+  }
+
+  $('chatFile').onchange = function () {
+    var file = this.files[0], f = cur;
+    this.value = '';
+    if (!file || !f || f.type !== 'file') return;
+    if (!/\.(pdf|jpe?g|png)$/i.test(file.name)) return bad('Only PDF, JPG or PNG files are accepted.');
+    if (file.size > MAX_MB * 1024 * 1024) return bad('That file is larger than ' + MAX_MB + ' MB. Please attach a smaller one.');
+    readFile(file).then(function (info) {
+      ans[f.id] = info;
+      quick.innerHTML = '';
+      say('Attached: ' + file.name, 'me');
+      next();
+    });
+  };
+
+  // ---- Final review, fixing, submit ----
+  function confirmStep() {
+    cur = null; quick.innerHTML = '';
+    var lines = [];
+    fields.forEach(function (f) {
+      if (!vis(f)) return;
+      var v = ans[f.id];
+      lines.push(short(f) + ': ' + (f.type === 'file' ? v.name : f.type === 'ssn' ? mask(v) : (v === '' ? '-' : showVal(f, v))));
+    });
+    say('Everything is confirmed. Final review:\n' + lines.join('\n'), 'bot',
+        'Everything is confirmed. Please check the summary on screen, then say Submit application, or Change an answer.');
+    buttons([
+      { t: 'Submit application', f: submit },
+      { t: 'Change an answer', f: function () { say('What would you like to change?'); hub([]); } }
+    ]);
+  }
+
+  function redo(f) {
+    if (f.id === 'city' || f.id === 'state') f = byId('zip');
+    delete ans[f.id]; delete cand[f.id];
+    manual[f.id] = true;
+    if (f.type === 'zip') { delete ans[f.cityId]; delete ans[f.stateId]; }
+    pending = pending.filter(function (x) { return x !== f.id; });
+    next();
+  }
+
+  function hub(ids) {
+    cur = null;
+    var list = [], seen = {};
+    function add(f) {
+      if (!f || seen[f.id] || !vis(f)) return;
+      seen[f.id] = 1;
+      list.push({ t: (ids.length ? 'Fix: ' : 'Change: ') + short(f), f: function () { redo(f); } });
+    }
+    if (ids.length) {
+      ids.forEach(function (id) { add(byId(id)); });
+      list.push({ t: 'Change something else', f: function () { pending = []; say('What would you like to change?'); hub([]); } });
+      list.push({ t: 'Submit again', f: function () { pending = []; submit(); } });
+    } else {
+      fields.forEach(function (f) { if (!f.auto) add(f); });
+      list.push({ t: 'Submit application', f: submit });
+    }
+    buttons(list);
+  }
+
+  function submit() {
+    cur = null; quick.innerHTML = ''; busy = true;
+    say('Verifying your documents. This can take a little while...');
+        var out = { accountType: type, consentVersion: CONSENT_VERSION, fields: [], files: [] };
+    fields.forEach(function (f) {
+      var v = vis(f) ? ans[f.id] : undefined;
+      if (f.type === 'file') {
+        var i = v ? { base64: v.base64, mimeType: v.mimeType, name: v.name }
+                  : { base64: null, mimeType: '', name: '' };
+        i.label = f.label; i.id = f.id;
+        out.files.push(i);
+      } else {
+        out.fields.push({ id: f.id, label: f.label, value: (v === undefined ? '' : v) });
+      }
+    });
+    google.script.run
+      .withSuccessHandler(done)
+      .withFailureHandler(function (e) {
+        busy = false;
+        bad('Error: ' + e.message);
+        buttons([{ t: 'Try again', f: submit }]);
+      })
+      .submitForm(out);
+  }
+
+  function mapIds(items) {
+    var out = [];
+    items.forEach(function (it) {
+      var ids = (it.fieldId === 'state' || it.fieldId === 'city') ? ['addr1', 'addr2', 'zip'] : [it.fieldId];
+      ids.forEach(function (x) { if (out.indexOf(x) < 0) out.push(x); });
+    });
+    return out;
+  }
+
+  // ================= CAMERA SCAN (hold the document up to the camera) =================
+  var BLUR_MIN = 30;   // soft warning only; raise it to be stricter
+  var camStream = null, camField = null, camShot = null, camTimer = null;
+
+  function camUI() {
+    if ($('camModal')) return;
+    document.body.insertAdjacentHTML('beforeend',
+      '<div id="camModal"><div class="camcard"><div class="camtitle" id="camTitle"></div>' +
+      '<div class="camview"><video id="camVideo" autoplay playsinline muted></video>' +
+      '<img id="camShotImg" alt="" style="display:none"><div class="camguide" id="camGuide"></div><div id="camCount"></div></div>' +
+      '<div class="camhint" id="camHint"></div><div class="camrow" id="camRow"></div></div></div>');
+  }
+  function camButtons(list) {
+    var row = $('camRow'); row.innerHTML = '';
+    list.forEach(function (it) {
+      var b = document.createElement('button'); b.type = 'button'; b.textContent = it.t; b.onclick = it.f; row.appendChild(b);
+    });
+  }
+  function camLive() {
+    $('camShotImg').style.display = 'none';
+    $('camVideo').style.display = 'block';
+    $('camGuide').style.display = camField.selfie ? 'none' : 'block';
+    $('camHint').textContent = camField.selfie
+      ? 'Look straight at the camera in good light.'
+      : 'Hold the document flat inside the frame. Keep all four corners visible and avoid glare.';
+    camButtons([
+      { t: 'Capture in 3 seconds', f: countdown },
+      { t: 'Capture now', f: snap },
+      { t: 'Cancel', f: closeCamera }
+    ]);
+  }
+  function openCamera(f) {
+    camUI(); camField = f;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      bad('This page cannot use the camera. Please open the website from its https address in Chrome, Edge or Safari, or attach a file instead.');
+      return;
+    }
+    stopVoice();
+    $('camTitle').textContent = f.selfie ? 'Take a selfie' : 'Scan: ' + short(f);
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: f.selfie ? 'user' : 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false })
+      .then(function (s) {
+        camStream = s;
+        $('camVideo').srcObject = s;
+        $('camModal').style.display = 'flex';
+        camLive();
+      })
+      .catch(function (e) {
+        bad('The camera is not available (' + (e && e.name ? e.name : 'error') + '). Click the lock icon next to the page address, set Camera to Allow, then reload. You can also attach a file instead.');
+      });
+  }
+  function closeCamera() {
+    if (camTimer) { clearInterval(camTimer); camTimer = null; }
+    $('camCount').textContent = '';
+    if (camStream) { camStream.getTracks().forEach(function (t) { t.stop(); }); camStream = null; }
+    $('camModal').style.display = 'none';
+  }
+  function countdown() {
+    var n = 3, c = $('camCount');
+    camButtons([{ t: 'Cancel', f: closeCamera }]);
+    c.textContent = n;
+    camTimer = setInterval(function () {
+      n--;
+      if (n > 0) c.textContent = n;
+      else { clearInterval(camTimer); camTimer = null; c.textContent = ''; snap(); }
+    }, 1000);
+  }
+  function sharpness(cv) {
+    var w = 320, h = Math.max(2, Math.round(cv.height * w / cv.width));
+    var t = document.createElement('canvas'); t.width = w; t.height = h;
+    var x = t.getContext('2d'); x.drawImage(cv, 0, 0, w, h);
+    var d = x.getImageData(0, 0, w, h).data, g = new Float32Array(w * h), i;
+    for (i = 0; i < w * h; i++) g[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+    var sum = 0, sq = 0, n = 0;
+    for (var yy = 1; yy < h - 1; yy++) for (var xx = 1; xx < w - 1; xx++) {
+      var k = yy * w + xx, l = 4 * g[k] - g[k - 1] - g[k + 1] - g[k - w] - g[k + w];
+      sum += l; sq += l * l; n++;
+    }
+    var mean = sum / n; return sq / n - mean * mean;
+  }
+  function snap() {
+    var v = $('camVideo');
+    if (!v.videoWidth) return;
+    var scale = Math.min(1, 1600 / v.videoWidth);
+    var cv = document.createElement('canvas');
+    cv.width = Math.round(v.videoWidth * scale); cv.height = Math.round(v.videoHeight * scale);
+    cv.getContext('2d').drawImage(v, 0, 0, cv.width, cv.height);
+    camShot = cv.toDataURL('image/jpeg', 0.85);
+    $('camShotImg').src = camShot;
+    $('camShotImg').style.display = 'block'; v.style.display = 'none'; $('camGuide').style.display = 'none';
+    $('camHint').textContent = sharpness(cv) < BLUR_MIN
+      ? 'This photo looks blurry. Please retake it and hold steady.'
+      : 'Is the photo clear, with everything visible?';
+    camButtons([{ t: 'Use this photo', f: useShot }, { t: 'Retake', f: camLive }]);
+  }
+  function useShot() {
+    var f = camField, b64 = camShot.split(',')[1];
+    if (b64.length * 0.75 > MAX_MB * 1024 * 1024) { bad('That photo is too large. Please retake it.'); return; }
+    ans[f.id] = { base64: b64, mimeType: 'image/jpeg', name: f.id + '-scan.jpg' };
+    closeCamera(); quick.innerHTML = '';
+    say('Captured: ' + short(f), 'me');
+    next();
+  }
+  function done(res) {
+    busy = false;
+    if (res.saved) {
+      say('Thank you! Your application was verified and submitted.\nReference: ' + res.ref +
+          '\n\nTo start a new application, refresh this page.', 'bot',
+          'Thank you! Your application was verified and submitted. Your reference number is shown on screen.');
+      quick.innerHTML = '';
+      inp.disabled = true; $('chatSend').disabled = true;
+      return;
+    }
+    var items = (res.items || []).filter(function (i) { return !i.ok; });
+    if (!items.length) {
+      bad(res.text || 'Something went wrong.');
+      buttons([{ t: 'Try again', f: submit }]);
+      return;
+    }
+    say('Your application was NOT submitted. Please check these items:', 'bad');
+    items.forEach(function (i) {
+      var f = byId(i.fieldId);
+      say((f ? short(f) : i.fieldId) + ': ' + i.text, 'bad', short(f || { label: i.fieldId }) + ' needs attention. Please see the details on screen.');
+    });
+    pending = mapIds(items);
+    say('If a detail is correct, the document may be unclear. Use "Change something else" to upload it again.');
+    hub(pending);
+  }
+})();
+</script>
+</body>
+</html>
