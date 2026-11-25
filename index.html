@@ -93,7 +93,22 @@ function einPrefixOk(v) {
   return r.some(function (x) { return p >= x[0] && p <= x[1]; });
 }
 function emailOk(v) { v = String(v || '').trim(); return v.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v); }
+var DIAL = {};
+"Afghanistan|93,Albania|355,Algeria|213,Andorra|376,Angola|244,Antigua and Barbuda|1,Argentina|54,Armenia|374,Australia|61,Austria|43,Azerbaijan|994,Bahamas|1,Bahrain|973,Bangladesh|880,Barbados|1,Belarus|375,Belgium|32,Belize|501,Benin|229,Bhutan|975,Bolivia|591,Bosnia and Herzegovina|387,Botswana|267,Brazil|55,Brunei|673,Bulgaria|359,Burkina Faso|226,Burundi|257,Cabo Verde|238,Cambodia|855,Cameroon|237,Canada|1,Central African Republic|236,Chad|235,Chile|56,China|86,Colombia|57,Comoros|269,Congo (Republic of the)|242,Congo (Democratic Republic of the)|243,Costa Rica|506,Cote d'Ivoire|225,Croatia|385,Cuba|53,Cyprus|357,Czech Republic|420,Denmark|45,Djibouti|253,Dominica|1,Dominican Republic|1,Ecuador|593,Egypt|20,El Salvador|503,Equatorial Guinea|240,Eritrea|291,Estonia|372,Eswatini|268,Ethiopia|251,Fiji|679,Finland|358,France|33,Gabon|241,Gambia|220,Georgia|995,Germany|49,Ghana|233,Greece|30,Grenada|1,Guatemala|502,Guinea|224,Guinea-Bissau|245,Guyana|592,Haiti|509,Honduras|504,Hungary|36,Iceland|354,India|91,Indonesia|62,Iran|98,Iraq|964,Ireland|353,Israel|972,Italy|39,Jamaica|1,Japan|81,Jordan|962,Kazakhstan|7,Kenya|254,Kiribati|686,Kosovo|383,Kuwait|965,Kyrgyzstan|996,Laos|856,Latvia|371,Lebanon|961,Lesotho|266,Liberia|231,Libya|218,Liechtenstein|423,Lithuania|370,Luxembourg|352,Madagascar|261,Malawi|265,Malaysia|60,Maldives|960,Mali|223,Malta|356,Marshall Islands|692,Mauritania|222,Mauritius|230,Mexico|52,Micronesia|691,Moldova|373,Monaco|377,Mongolia|976,Montenegro|382,Morocco|212,Mozambique|258,Myanmar|95,Namibia|264,Nauru|674,Nepal|977,Netherlands|31,New Zealand|64,Nicaragua|505,Niger|227,Nigeria|234,North Korea|850,North Macedonia|389,Norway|47,Oman|968,Pakistan|92,Palau|680,Palestine|970,Panama|507,Papua New Guinea|675,Paraguay|595,Peru|51,Philippines|63,Poland|48,Portugal|351,Qatar|974,Romania|40,Russia|7,Rwanda|250,Saint Kitts and Nevis|1,Saint Lucia|1,Saint Vincent and the Grenadines|1,Samoa|685,San Marino|378,Sao Tome and Principe|239,Saudi Arabia|966,Senegal|221,Serbia|381,Seychelles|248,Sierra Leone|232,Singapore|65,Slovakia|421,Slovenia|386,Solomon Islands|677,Somalia|252,South Africa|27,South Korea|82,South Sudan|211,Spain|34,Sri Lanka|94,Sudan|249,Suriname|597,Sweden|46,Switzerland|41,Syria|963,Taiwan|886,Tajikistan|992,Tanzania|255,Thailand|66,Timor-Leste|670,Togo|228,Tonga|676,Trinidad and Tobago|1,Tunisia|216,Turkey|90,Turkmenistan|993,Tuvalu|688,Uganda|256,Ukraine|380,United Arab Emirates|971,United Kingdom|44,United States|1,Uruguay|598,Uzbekistan|998,Vanuatu|678,Vatican City|39,Venezuela|58,Vietnam|84,Yemen|967,Zambia|260,Zimbabwe|263".split(',').forEach(function (p) { var a = p.split('|'); DIAL[a[0]] = a[1]; });
 
+function ccOptions(def) {
+  return '<option value="">Code</option>' + COUNTRIES.filter(function (c) { return DIAL[c]; }).map(function (c) {
+    return '<option value="' + c.replace(/"/g, '&quot;') + '"' + (c === def ? ' selected' : '') + '>' + c + ' (+' + DIAL[c] + ')</option>';
+  }).join('');
+}
+function phoneError(country, digits) {
+  if (!country || !DIAL[country]) return 'Select the country code';
+  if (!digits) return 'Enter the contact number';
+  if (country === 'India' && !/^[1-9]\d{9}$/.test(digits)) return 'Enter a 10-digit Indian number (without 0 or +91)';
+  if ((country === 'United States' || country === 'Canada') && !/^[2-9]\d{2}[2-9]\d{6}$/.test(digits)) return 'Enter a 10-digit number, like 2025550123';
+  if (!/^\d{6,14}$/.test(digits)) return 'Enter 6 to 14 digits, without the country code';
+  return '';
+}
 // ---------- LISTS ----------
 var COUNTRIES = ["Afghanistan","Albania","Algeria","Andorra","Angola","Antigua and Barbuda","Argentina","Armenia","Australia","Austria","Azerbaijan","Bahamas","Bahrain","Bangladesh","Barbados","Belarus","Belgium","Belize","Benin","Bhutan","Bolivia","Bosnia and Herzegovina","Botswana","Brazil","Brunei","Bulgaria","Burkina Faso","Burundi","Cabo Verde","Cambodia","Cameroon","Canada","Central African Republic","Chad","Chile","China","Colombia","Comoros","Congo (Republic of the)","Congo (Democratic Republic of the)","Costa Rica","Cote d'Ivoire","Croatia","Cuba","Cyprus","Czech Republic","Denmark","Djibouti","Dominica","Dominican Republic","Ecuador","Egypt","El Salvador","Equatorial Guinea","Eritrea","Estonia","Eswatini","Ethiopia","Fiji","Finland","France","Gabon","Gambia","Georgia","Germany","Ghana","Greece","Grenada","Guatemala","Guinea","Guinea-Bissau","Guyana","Haiti","Honduras","Hungary","Iceland","India","Indonesia","Iran","Iraq","Ireland","Israel","Italy","Jamaica","Japan","Jordan","Kazakhstan","Kenya","Kiribati","Kosovo","Kuwait","Kyrgyzstan","Laos","Latvia","Lebanon","Lesotho","Liberia","Libya","Liechtenstein","Lithuania","Luxembourg","Madagascar","Malawi","Malaysia","Maldives","Mali","Malta","Marshall Islands","Mauritania","Mauritius","Mexico","Micronesia","Moldova","Monaco","Mongolia","Montenegro","Morocco","Mozambique","Myanmar","Namibia","Nauru","Nepal","Netherlands","New Zealand","Nicaragua","Niger","Nigeria","North Korea","North Macedonia","Norway","Oman","Pakistan","Palau","Palestine","Panama","Papua New Guinea","Paraguay","Peru","Philippines","Poland","Portugal","Qatar","Romania","Russia","Rwanda","Saint Kitts and Nevis","Saint Lucia","Saint Vincent and the Grenadines","Samoa","San Marino","Sao Tome and Principe","Saudi Arabia","Senegal","Serbia","Seychelles","Sierra Leone","Singapore","Slovakia","Slovenia","Solomon Islands","Somalia","South Africa","South Korea","South Sudan","Spain","Sri Lanka","Sudan","Suriname","Sweden","Switzerland","Syria","Taiwan","Tajikistan","Tanzania","Thailand","Timor-Leste","Togo","Tonga","Trinidad and Tobago","Tunisia","Turkey","Turkmenistan","Tuvalu","Uganda","Ukraine","United Arab Emirates","United Kingdom","United States","Uruguay","Uzbekistan","Vanuatu","Vatican City","Venezuela","Vietnam","Yemen","Zambia","Zimbabwe"];
 
@@ -145,6 +160,7 @@ var SCHEMA = {
     {id:"name",   label:"Legal Name",                    type:"text"},
     {id:"dob",    label:"Date of Birth",                 type:"dob"},
     {id:"email", label:"Email ID", type:"email"},
+      {id:"phone", label:"Contact Number", type:"phone", defaultCountry:"United States"},
     {id:"addr1",  label:"Address Line 1 (Street Address)", type:"text"},
     {id:"addr2",  label:"Address Line 2 (Apartment, Suite, Unit)", type:"text", optional:true},
     {id:"zip",    label:"ZIP Code",                      type:"zip", country:"US", cityId:"city", stateId:"state"},
@@ -153,8 +169,7 @@ var SCHEMA = {
     {id:"ssn",    label:"SSN Number",                    type:"ssn"},
     {id:"ssnproof",label:"SSN Proof",                    type:"file"},
     {id:"poa",    label:"Proof of Address (Utility Bill / Lease)", type:"file"},
-    {id:"photoid", label:"Government Photo ID (Driver License / State ID / Passport)", type:"file"},
-{id:"selfie", label:"Selfie (live photo of your face)", type:"file", selfie:true},
+    {id:"selfie", label:"Selfie (live photo of your face)", type:"file", selfie:true},
     {id:"occ",    label:"Occupation",                    type:"text"},
     {id:"pep",    label:"PEP Self-Declaration (Are you a Politically Exposed Person?)",
              type:"select", options:["No","Yes"]},
@@ -184,6 +199,7 @@ var SCHEMA = {
         {id:"lei",    label:"Legal Entity Identifier (LEI)", type:"lei"},
     {id:"ein",    label:"Federal EIN",                   type:"ein"},
     {id:"email", label:"Email ID", type:"email"},
+    {id:"phone", label:"Business / Office Contact Number", type:"phone", defaultCountry:"United States"},
     {id:"cp575",  label:"IRS CP 575 / 147C Notice",      type:"file"},
     {id:"coe",    label:"Formation Document",            type:"file"},
     {id:"ubo",    label:"UBO Register Document",         type:"file"}
@@ -193,6 +209,7 @@ var SCHEMA = {
     {id:"alias",  label:"Alias (if any)",                type:"text", optional:true},
     {id:"dob",    label:"Date of Birth",                 type:"dobdmy"},
     {id:"email", label:"Email ID", type:"email"},
+    {id:"phone", label:"Contact Number", type:"phone"}
     {id:"nat",    label:"Nationality",                   type:"select", options:COUNTRIES},
     {id:"ppno",   label:"Passport Number",               type:"text"},
     {id:"ppexp",  label:"Passport Expiry Date",          type:"expdmy"},
@@ -371,6 +388,9 @@ function fieldHtml(f) {
   } else if (f.type === 'expdmy') {
     html += '<input type="text" id="' + f.id + '" inputmode="numeric" maxlength="10" placeholder="DD-MM-YYYY" autocomplete="off">' +
             '<div class="hint">Format DD-MM-YYYY</div>';
+              } else if (f.type === 'phone') {
+    html += '<div style="display:flex;gap:8px"><select id="' + f.id + '_cc" style="flex:0 0 48%;min-width:0">' + ccOptions(f.defaultCountry) + '</select>' +
+            '<input type="text" id="' + f.id + '" inputmode="tel" maxlength="14" placeholder="Phone number" autocomplete="off" style="flex:1;min-width:0"></div>';
               } else if (f.type === 'email') {
     html += '<input type="text" id="' + f.id + '" inputmode="email" autocomplete="off" placeholder="name@example.com">';
   } else if (f.type === 'ssn') {
@@ -543,6 +563,7 @@ typeSel.addEventListener('change', function () {
     if (f.type === 'ein') {
       el.addEventListener('input', function (e) { el.value = fmtEIN(el.value, !isDelete(e)); });
     }
+        if (f.type === 'phone') el.addEventListener('input', function () { el.value = el.value.replace(/\D/g, '').slice(0, 14); });
     if (f.type === 'zip') setupZip(f);
 
     if (f.showIf) {
@@ -607,6 +628,7 @@ btn.addEventListener('click', async function () {
             else if (f.type === 'ein' && CHECK_EIN_PREFIX && !einPrefixOk(v)) err = 'This EIN does not start with a valid IRS prefix. Please re-check it.';
       else if (f.type === 'ssn' && ssnRuleError(v)) err = ssnRuleError(v);
       else if (f.type === 'email' && !emailOk(v)) err = 'Enter a valid email address';
+            else if (f.type === 'phone' && phoneError(document.getElementById(f.id + '_cc').value, v.replace(/\D/g, ''))) err = phoneError(document.getElementById(f.id + '_cc').value, v.replace(/\D/g, ''));
       else if (f.id === 'ppexp' && parseDMY(v) < addMonthsIso(PASSPORT_MIN_MONTHS)) err = 'Passport must be valid for at least ' + PASSPORT_MIN_MONTHS + ' more months';
       else if (f.id === 'visaexp' && VISA_MUST_END_WITH_PASSPORT && ppIso && parseDMY(v) > ppIso) err = 'Visa expiry cannot be later than the passport expiry';
       else if (f.type === 'zip' && f.country === 'US' && !/^\d{5}$/.test(v)) err = 'Enter a 5-digit ZIP code';
@@ -635,6 +657,7 @@ btn.addEventListener('click', async function () {
       } else {
         var val = visible ? e.value.trim() : '';
                 if (fd.type === 'consent') val = e.checked ? 'Agreed' : '';
+                        if (fd.type === 'phone' && val) val = '+' + DIAL[document.getElementById(fd.id + '_cc').value] + ' ' + val.replace(/\D/g, '');
         if (fd.type === 'dob' && val) val = parseDOB(val);   // always sent as YYYY-MM-DD
         if ((fd.type === 'dobdmy' || fd.type === 'expdmy') && val) val = parseDMY(val);   // sent as YYYY-MM-DD
         out.fields.push({ id: fd.id, label: fd.label, value: val });
@@ -891,11 +914,12 @@ btn.addEventListener('click', async function () {
   var PH = inp.placeholder;
   var type = '', fields = [], ans = {}, cand = {}, manual = {}, EX = [];
   var cur = null, pending = [], started = false, busy = false, extracted = false;
+    var aiMode = false, phoneCC = '';
 
   var EXTRACT = {
     'Retail': ['name', 'dob', 'ssn', 'addr1', 'addr2', 'zip', 'city', 'state'],
     'Business': ['bname', 'lei', 'ein'],
-        'Foreign National': ['fname', 'dob', 'nat', 'ppno', 'ppexp', 'visatype', 'visano', 'visaexp']
+        'Foreign National': ['fname', 'dob', 'nat', 'ppno', 'ppexp', 'visatype', 'visano', 'visaexp', 'oaddress']
   };
   var ADDR = ['addr1', 'addr2', 'zip', 'city', 'state'];
   var SENS = ['ssn', 'ppno', 'visano', 'lei', 'ein'];   // never read aloud
@@ -903,11 +927,24 @@ btn.addEventListener('click', async function () {
 
   $('goForm').onclick = function () { screen('formMode'); };
   $('goChat').onclick = function () {
+     function launchChat(ai) {
     screen('chatMode');
-    if (!started) { started = true; setVoice(true, false); start(); }
-  };
-  $('backFromForm').onclick = function () { screen('choice'); };
-  $('backFromChat').onclick = function () { screen('choice'); };
+    if (started && aiMode === ai) return;
+    aiMode = ai; started = true;
+    box.innerHTML = ''; quick.innerHTML = '';
+    type = ''; fields = []; ans = {}; cand = {}; manual = {}; pending = []; EX = [];
+    extracted = false; cur = null; busy = false; phoneCC = '';
+    inp.disabled = false; $('chatSend').disabled = false;
+    setVoice(true, false); start();
+  }
+  $('goChat').onclick = function () { launchChat(false); };
+
+  var aiBtn = document.createElement('button');
+  aiBtn.className = 'opt'; aiBtn.id = 'goAI'; aiBtn.type = 'button'; aiBtn.style.gridColumn = '1 / -1';
+  aiBtn.innerHTML = '<em>New</em><span class="ico">' + SVG_CHAT + '</span><b>Open account with AI (live capture)</b>' +
+    '<small>Answer a few questions and capture your selfie and documents live with the camera. The AI reads the details for you.</small>';
+  document.querySelector('#choice .opts').appendChild(aiBtn);
+  aiBtn.onclick = function () { launchChat(true); };
 
   // ================= VOICE =================
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1198,6 +1235,7 @@ btn.addEventListener('click', async function () {
   function next() {
         var cf = byId('consent');
     if (cf && !(cf.id in ans)) { ask(cf); return; }
+        if (aiMode) { nextAI(); return; }
     var i, f;
     for (i = 0; i < fields.length; i++) {
       f = fields[i];
@@ -1228,6 +1266,16 @@ btn.addEventListener('click', async function () {
   }
 
   function ask(f, note) {
+        if (f.type === 'phone') {
+      cur = f; phoneCC = ''; quick.innerHTML = '';
+      say(f.label + '\nFirst, tell me the country code. Say or type the country, like India, or the code, like +91.', 'bot',
+          f.label + '. First, tell me the country code. For example, India.');
+      buttons(['India', 'United States', 'United Kingdom', 'United Arab Emirates'].map(function (c) {
+        return { t: c + ' (+' + DIAL[c] + ')', f: function () {
+          phoneCC = c; say('Now type or say the number, without the country code.'); } };
+      }));
+      return;
+    }
         if (f.type === 'consent') {
       cur = f; quick.innerHTML = '';
       say('Consent\n' + CONSENT_TEXT + '\n(Version ' + CONSENT_VERSION + ')\n\nDo you agree?', 'bot',
@@ -1235,7 +1283,7 @@ btn.addEventListener('click', async function () {
       buttons([
         { t: 'I agree', f: function () {
             ans[f.id] = 'Agreed';
-            say('Thank you. Please upload the documents for this account, one at a time. I will read them, so you only need to confirm the details.');
+            say(aiMode ? 'Thank you. I will guide you step by step. You will capture your documents live with the camera.' : 'Thank you. Please upload the documents for this account, one at a time. I will read them, so you only need to confirm the details.');
             next(); } },
         { t: 'I do not agree', f: function () {
             say('I understand. Without your consent I cannot open an account online. You can come back any time.');
@@ -1420,6 +1468,7 @@ btn.addEventListener('click', async function () {
   });
 
   function handle(f, t) {
+        if (f.type === 'phone') return phoneHandle(f, t);
         if (f.type === 'consent') {
       if (/^(i )?(agree|yes|accept)/i.test(t)) {
         ans[f.id] = 'Agreed';
@@ -1665,6 +1714,76 @@ btn.addEventListener('click', async function () {
     closeCamera(); quick.innerHTML = '';
     say('Captured: ' + short(f), 'me');
     next();
+  }
+    // ---- Phone number in the chat ----
+  var PREFER = ['United States', 'India', 'Russia', 'Italy', 'Australia'];
+  var DIAL_ALIAS = { usa: 'United States', us: 'United States', america: 'United States', uk: 'United Kingdom', britain: 'United Kingdom', england: 'United Kingdom', uae: 'United Arab Emirates', emirates: 'United Arab Emirates' };
+  function findDial(t) {
+    var q = t.toLowerCase().replace(/[().,]/g, ' ').replace(/\s+/g, ' ').trim(), i;
+    if (DIAL_ALIAS[q]) return DIAL_ALIAS[q];
+    var m = /^\+?(\d{1,4})$/.exec(q);
+    if (m) {
+      for (i = 0; i < PREFER.length; i++) if (DIAL[PREFER[i]] === m[1]) return PREFER[i];
+      for (i = 0; i < COUNTRIES.length; i++) if (DIAL[COUNTRIES[i]] === m[1]) return COUNTRIES[i];
+      return null;
+    }
+    var name = q.replace(/\+?\d+/g, '').replace(/\s+/g, ' ').trim();
+    var exact = COUNTRIES.filter(function (c) { return c.toLowerCase() === name; });
+    if (exact.length) return exact[0];
+    var part = COUNTRIES.filter(function (c) { return name.length > 2 && c.toLowerCase().indexOf(name) > -1; });
+    return part.length === 1 ? part[0] : null;
+  }
+  function phoneHandle(f, t) {
+    if (!phoneCC) {
+      var full = /^\+(\d{1,4})[\s-]*([\d\s-]{6,16})$/.exec(t.trim());
+      var c = full ? findDial('+' + full[1]) : findDial(t);
+      if (!c) return bad('I could not find that country code. Try the country name, like India, or the code, like +91.');
+      phoneCC = c; quick.innerHTML = '';
+      if (!full) { say('Country code +' + DIAL[c] + ' selected. Now type or say the number, without the country code.'); return; }
+      t = full[2];
+    }
+    var digits = t.replace(/\D/g, ''), err = phoneError(phoneCC, digits);
+    if (err) return bad(err);
+    ans[f.id] = '+' + DIAL[phoneCC] + ' ' + digits;
+    phoneCC = '';
+    next();
+  }
+    // ================= OPEN ACCOUNT WITH AI (live capture) =================
+  var PEP_STEPS = ['pep', 'pepname', 'peptype', 'pepprimary', 'pepsecondary', 'peptertiary'];
+  var AI_FLOW = {
+    'Retail': ['phone', 'email', 'selfie', 'ssnproof', 'poa', 'occ'].concat(PEP_STEPS,
+              ['@extract', 'name', 'dob', 'addr1', 'addr2', 'zip', 'city', 'state', 'ssn']),
+    'Business': ['phone', 'email', 'cp575', 'coe', 'ubo', '@extract', 'bname', 'lei', 'ein'],
+    'Foreign National': ['phone', 'email', 'selfie', 'ppcopy', 'visacopy', '@extract', 'fname', 'dob', 'nat',
+              'ppno', 'ppexp', 'visatype', 'visano', 'visaexp', 'oaddress', 'alias'].concat(PEP_STEPS)
+  };
+
+  function nextAI() {
+    var order = AI_FLOW[type];
+    for (var i = 0; i < order.length; i++) {
+      var id = order[i];
+      if (id === '@extract') { if (!extracted) { extract(); return; } continue; }
+      var f = byId(id);
+      if (!f) continue;
+      if (!vis(f)) { delete ans[f.id]; continue; }
+      if (f.id in ans) continue;
+      if (f.type === 'file') { ask(f); return; }
+      if (f.id === 'addr1' && !manual.addr1 && addrOk()) { confirmAddress(); return; }
+      var c = cand[f.id];
+      if (EX.indexOf(f.id) > -1 && ADDR.indexOf(f.id) < 0 && !manual[f.id]) {
+        if (c) {
+          var r = check(f, c, true);
+          if (!r.err) { confirmField(f, r.v); return; }
+          bad('I read "' + showVal(f, c) + '" for ' + short(f) + ', but: ' + r.err);
+        }
+        ask(f, 'I could not read this from your documents.\n');
+        return;
+      }
+      ask(f);
+      return;
+    }
+    if (pending.length) { say('Is there anything else to fix?'); hub(pending); }
+    else confirmStep();
   }
   function done(res) {
     busy = false;
