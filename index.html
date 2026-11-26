@@ -3,26 +3,7 @@
 <head>
 <base target="_top">
 <meta charset="UTF-8">
-<script>
-(function () {
-  var URL = '/exec';
-  function mk(ok, fail) {
-    return new Proxy({}, { get: function (_, fn) {
-      if (fn === 'withSuccessHandler') return function (f) { return mk(f, fail); };
-      if (fn === 'withFailureHandler') return function (f) { return mk(ok, f); };
-      return function () {
-        var args = [].slice.call(arguments);
-        fetch(URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                     body: JSON.stringify({ fn: fn, args: args }) })
-          .then(function (r) { return r.json(); })
-          .then(function (j) { if (j.error) throw new Error(j.error); if (ok) ok(j.result); })
-          .catch(function (e) { if (fail) fail(e); });
-      };
-    }});
-  }
-  window.google = { script: { run: mk() } };
-})();
-</script>
+
 <style>
   body { font-family: Arial, sans-serif; background:#f3f5f9; margin:0; padding:20px; }
   .wrap { max-width:640px; margin:auto; background:#fff; padding:28px;
@@ -96,8 +77,11 @@ function emailOk(v) { v = String(v || '').trim(); return v.length <= 254 && /^[^
 var DIAL = {};
 "Afghanistan|93,Albania|355,Algeria|213,Andorra|376,Angola|244,Antigua and Barbuda|1,Argentina|54,Armenia|374,Australia|61,Austria|43,Azerbaijan|994,Bahamas|1,Bahrain|973,Bangladesh|880,Barbados|1,Belarus|375,Belgium|32,Belize|501,Benin|229,Bhutan|975,Bolivia|591,Bosnia and Herzegovina|387,Botswana|267,Brazil|55,Brunei|673,Bulgaria|359,Burkina Faso|226,Burundi|257,Cabo Verde|238,Cambodia|855,Cameroon|237,Canada|1,Central African Republic|236,Chad|235,Chile|56,China|86,Colombia|57,Comoros|269,Congo (Republic of the)|242,Congo (Democratic Republic of the)|243,Costa Rica|506,Cote d'Ivoire|225,Croatia|385,Cuba|53,Cyprus|357,Czech Republic|420,Denmark|45,Djibouti|253,Dominica|1,Dominican Republic|1,Ecuador|593,Egypt|20,El Salvador|503,Equatorial Guinea|240,Eritrea|291,Estonia|372,Eswatini|268,Ethiopia|251,Fiji|679,Finland|358,France|33,Gabon|241,Gambia|220,Georgia|995,Germany|49,Ghana|233,Greece|30,Grenada|1,Guatemala|502,Guinea|224,Guinea-Bissau|245,Guyana|592,Haiti|509,Honduras|504,Hungary|36,Iceland|354,India|91,Indonesia|62,Iran|98,Iraq|964,Ireland|353,Israel|972,Italy|39,Jamaica|1,Japan|81,Jordan|962,Kazakhstan|7,Kenya|254,Kiribati|686,Kosovo|383,Kuwait|965,Kyrgyzstan|996,Laos|856,Latvia|371,Lebanon|961,Lesotho|266,Liberia|231,Libya|218,Liechtenstein|423,Lithuania|370,Luxembourg|352,Madagascar|261,Malawi|265,Malaysia|60,Maldives|960,Mali|223,Malta|356,Marshall Islands|692,Mauritania|222,Mauritius|230,Mexico|52,Micronesia|691,Moldova|373,Monaco|377,Mongolia|976,Montenegro|382,Morocco|212,Mozambique|258,Myanmar|95,Namibia|264,Nauru|674,Nepal|977,Netherlands|31,New Zealand|64,Nicaragua|505,Niger|227,Nigeria|234,North Korea|850,North Macedonia|389,Norway|47,Oman|968,Pakistan|92,Palau|680,Palestine|970,Panama|507,Papua New Guinea|675,Paraguay|595,Peru|51,Philippines|63,Poland|48,Portugal|351,Qatar|974,Romania|40,Russia|7,Rwanda|250,Saint Kitts and Nevis|1,Saint Lucia|1,Saint Vincent and the Grenadines|1,Samoa|685,San Marino|378,Sao Tome and Principe|239,Saudi Arabia|966,Senegal|221,Serbia|381,Seychelles|248,Sierra Leone|232,Singapore|65,Slovakia|421,Slovenia|386,Solomon Islands|677,Somalia|252,South Africa|27,South Korea|82,South Sudan|211,Spain|34,Sri Lanka|94,Sudan|249,Suriname|597,Sweden|46,Switzerland|41,Syria|963,Taiwan|886,Tajikistan|992,Tanzania|255,Thailand|66,Timor-Leste|670,Togo|228,Tonga|676,Trinidad and Tobago|1,Tunisia|216,Turkey|90,Turkmenistan|993,Tuvalu|688,Uganda|256,Ukraine|380,United Arab Emirates|971,United Kingdom|44,United States|1,Uruguay|598,Uzbekistan|998,Vanuatu|678,Vatican City|39,Venezuela|58,Vietnam|84,Yemen|967,Zambia|260,Zimbabwe|263".split(',').forEach(function (p) { var a = p.split('|'); DIAL[a[0]] = a[1]; });
 
-function ccOptions(def) {
-  return '<option value="">Code</option>' + COUNTRIES.filter(function (c) { return DIAL[c]; }).map(function (c) {
+function ccOptions(def, usOnly) {
+  if (usOnly) return '<option value="United States" selected>United States (+1)</option>';
+  var top = ['United States', 'India', 'United Kingdom', 'United Arab Emirates'];
+  var rest = Object.keys(DIAL).filter(function (c) { return top.indexOf(c) < 0; }).sort();
+  return top.concat(rest).map(function (c) {
     return '<option value="' + c.replace(/"/g, '&quot;') + '"' + (c === def ? ' selected' : '') + '>' + c + ' (+' + DIAL[c] + ')</option>';
   }).join('');
 }
@@ -160,7 +144,7 @@ var SCHEMA = {
     {id:"name",   label:"Legal Name",                    type:"text"},
     {id:"dob",    label:"Date of Birth",                 type:"dob"},
     {id:"email", label:"Email ID", type:"email"},
-      {id:"phone", label:"Contact Number", type:"phone", defaultCountry:"United States"},
+         {id:"phone", label:"Contact Number (USA)", type:"phone", defaultCountry:"United States", usOnly:true},
     {id:"addr1",  label:"Address Line 1 (Street Address)", type:"text"},
     {id:"addr2",  label:"Address Line 2 (Apartment, Suite, Unit)", type:"text", optional:true},
     {id:"zip",    label:"ZIP Code",                      type:"zip", country:"US", cityId:"city", stateId:"state"},
@@ -169,7 +153,7 @@ var SCHEMA = {
     {id:"ssn",    label:"SSN Number",                    type:"ssn"},
     {id:"ssnproof",label:"SSN Proof",                    type:"file"},
     {id:"poa",    label:"Proof of Address (Utility Bill / Lease)", type:"file"},
-    {id:"selfie", label:"Selfie (live photo of your face)", type:"file", selfie:true},
+    {id:"selfie", label:"Photo (clear photo of your face)", chatLabel:"Selfie or Photo (live selfie or a clear photo of your face)", type:"file", selfie:true},
     {id:"occ",    label:"Occupation",                    type:"text"},
     {id:"pep",    label:"PEP Self-Declaration (Are you a Politically Exposed Person?)",
              type:"select", options:["No","Yes"]},
@@ -209,7 +193,7 @@ var SCHEMA = {
     {id:"alias",  label:"Alias (if any)",                type:"text", optional:true},
     {id:"dob",    label:"Date of Birth",                 type:"dobdmy"},
     {id:"email", label:"Email ID", type:"email"},
-    {id:"phone", label:"Contact Number", type:"phone"}
+     {id:"phone", label:"Contact Number (USA)", type:"phone", defaultCountry:"United States", usOnly:true},
     {id:"nat",    label:"Nationality",                   type:"select", options:COUNTRIES},
     {id:"ppno",   label:"Passport Number",               type:"text"},
     {id:"ppexp",  label:"Passport Expiry Date",          type:"expdmy"},
@@ -218,7 +202,7 @@ var SCHEMA = {
     {id:"visano", label:"Visa Number",                   type:"text"},
      {id:"visaexp", label:"Visa Expiry Date", type:"expdmy"},
     {id:"visacopy",label:"Visa Copy",                    type:"file"},
-     {id:"selfie", label:"Selfie (live photo of your face)", type:"file", selfie:true},
+     {id:"selfie", label:"Photo (clear photo of your face)", chatLabel:"Selfie or Photo (live selfie or a clear photo of your face)", type:"file", selfie:true},
         {id:"oaddress", label:"Overseas Address",            type:"textarea"},
     {id:"pep",    label:"PEP Self-Declaration (Are you a Politically Exposed Person?)",
              type:"select", options:["No","Yes"]},
@@ -364,7 +348,7 @@ function scrollToFirstBad() {
 
 // ---------- BUILD FIELDS ----------
 function fieldHtml(f) {
-    if (f.type === 'consent') {
+  if (f.type === 'consent') {
     return '<div id="wrap_consent"><label style="font-weight:normal;display:flex;gap:10px;align-items:flex-start;margin:22px 0 6px"><input type="checkbox" id="consent" style="width:auto;padding:0;margin-top:3px"><span>' + CONSENT_TEXT + ' <span style="color:#6b7280">(Version ' + CONSENT_VERSION + ')</span></span></label><div class="res" id="res_consent"></div></div>';
   }
   var html = '<div id="wrap_' + f.id + '"' + (f.showIf ? ' style="display:none"' : '') + '>';
@@ -377,28 +361,29 @@ function fieldHtml(f) {
         return '<option value="' + o.replace(/"/g, '&quot;') + '">' + o + '</option>';
       }).join('') + '</select>';
   } else if (f.type === 'file') {
-        html += '<input type="file" id="' + f.id + '" accept="' + (f.selfie ? 'image/*" capture="user' : '.pdf,.jpg,.jpeg,.png') + '">' +
-            '<div class="hint">PDF, JPG or PNG, max ' + MAX_MB + ' MB</div>';
+    html += '<input type="file" id="' + f.id + '" accept="' + (f.selfie ? '.jpg,.jpeg,.png' : '.pdf,.jpg,.jpeg,.png') + '">' +
+            '<div class="hint">' + (f.selfie ? 'Clear, front-facing photo of your face (JPG or PNG)' : 'PDF, JPG or PNG') + ', max ' + MAX_MB + ' MB</div>';
   } else if (f.type === 'date') {
     var extra = f.minToday ? ' min="' + todayStr() + '"' : '';
     html += '<input type="date" id="' + f.id + '"' + extra + '>';
-      } else if (f.type === 'dobdmy') {
+  } else if (f.type === 'dobdmy') {
     html += '<input type="text" id="' + f.id + '" inputmode="numeric" maxlength="10" placeholder="DD-MM-YYYY" autocomplete="off">' +
             '<div class="hint">Format DD-MM-YYYY. You must be at least ' + MIN_AGE + ' years old.</div>';
   } else if (f.type === 'expdmy') {
     html += '<input type="text" id="' + f.id + '" inputmode="numeric" maxlength="10" placeholder="DD-MM-YYYY" autocomplete="off">' +
             '<div class="hint">Format DD-MM-YYYY</div>';
-              } else if (f.type === 'phone') {
-    html += '<div style="display:flex;gap:8px"><select id="' + f.id + '_cc" style="flex:0 0 48%;min-width:0">' + ccOptions(f.defaultCountry) + '</select>' +
-            '<input type="text" id="' + f.id + '" inputmode="tel" maxlength="14" placeholder="Phone number" autocomplete="off" style="flex:1;min-width:0"></div>';
-              } else if (f.type === 'email') {
+  } else if (f.type === 'phone') {
+    html += '<div style="display:flex;gap:8px"><select id="' + f.id + '_cc" style="flex:0 0 48%;min-width:0">' + ccOptions(f.defaultCountry, f.usOnly) + '</select>' +
+            '<input type="text" id="' + f.id + '" inputmode="tel" maxlength="14" placeholder="' + (f.usOnly ? '10-digit US number' : 'Phone number') + '" autocomplete="off" style="flex:1;min-width:0"></div>' +
+            (f.usOnly ? '<div class="hint">US phone number only: 10 digits, without +1 (example 2025550123)</div>' : '');
+  } else if (f.type === 'email') {
     html += '<input type="text" id="' + f.id + '" inputmode="email" autocomplete="off" placeholder="name@example.com">';
   } else if (f.type === 'ssn') {
     html += '<input type="text" id="' + f.id + '" inputmode="numeric" maxlength="11" placeholder="123-45-6789" autocomplete="off">';
   } else if (f.type === 'dob') {
-        html += '<input type="text" id="' + f.id + '" inputmode="numeric" maxlength="10" placeholder="' + DOB_PLACEHOLDER + '" autocomplete="off">' +
+    html += '<input type="text" id="' + f.id + '" inputmode="numeric" maxlength="10" placeholder="' + DOB_PLACEHOLDER + '" autocomplete="off">' +
             '<div class="hint">You must be at least ' + MIN_AGE + ' years old.</div>';
-              } else if (f.type === 'lei') {
+  } else if (f.type === 'lei') {
     html += '<input type="text" id="' + f.id + '" maxlength="20" placeholder="20 letters and digits" autocomplete="off">' +
             '<div class="hint">20 characters: letters A-Z and digits 0-9, no spaces</div>';
   } else if (f.type === 'ein') {
@@ -433,7 +418,15 @@ function postalError(f, v) {
   return 'Enter a valid postal code for ' + document.getElementById(f.countryFrom).value +
          ' (example: ' + fmt.example + ')';
 }
-
+function browserZip(country, zip, cb) {
+  fetch('https://api.zippopotam.us/' + encodeURIComponent(String(country).toLowerCase()) + '/' + encodeURIComponent(zip))
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (j) {
+      if (j && j.places && j.places.length) cb({ found: true, city: j.places[0]['place name'], state: j.places[0]['state'] });
+      else cb({ found: false });
+    })
+    .catch(function () { cb(null); });
+}
 var zipToken = {};
 function setupZip(f) {
   var zipEl = document.getElementById(f.id);
@@ -489,29 +482,34 @@ function setupZip(f) {
       return;
     }
 
-    hint.textContent = 'Looking up city and state...';
+       hint.textContent = 'Looking up city and state...';
     var token = (zipToken[f.id] = (zipToken[f.id] || 0) + 1);
+
+    function apply(r) {
+      if (token !== zipToken[f.id]) return;
+      if (r && r.found) {
+        cityEl.value = r.city || '';
+        stateEl.value = r.state || '';
+        setAuto(cityEl, stateEl, true);
+        hint.textContent = 'City and state filled automatically.' + (r.note ? ' ' + r.note : '');
+        if (r.cityEditable || !cityEl.value) unlock(cityEl);
+        if (!stateEl.value) unlock(stateEl);
+        if (!cityEl.value || !stateEl.value) hint.textContent = 'Please type the missing city / state.';
+      } else {
+        setAuto(cityEl, stateEl, false);
+        hint.textContent = 'Postal code not found. Please check it, or type the city and state yourself.';
+      }
+    }
+    function viaBrowser() { browserZip(country, zip, apply); }
 
     google.script.run
       .withSuccessHandler(function (r) {
         if (token !== zipToken[f.id]) return;
-        if (r.found) {
-          cityEl.value = r.city || '';
-          stateEl.value = r.state || '';
-          setAuto(cityEl, stateEl, true);
-          hint.textContent = 'City and state filled automatically.' + (r.note ? ' ' + r.note : '');
-          if (r.cityEditable || !cityEl.value) unlock(cityEl);
-          if (!stateEl.value) unlock(stateEl);
-          if (!cityEl.value || !stateEl.value) hint.textContent = 'Please type the missing city / state.';
-        } else {
-          setAuto(cityEl, stateEl, false);
-          hint.textContent = 'Postal code not found. Please check it, or type the city and state yourself.';
-        }
+        if (r && r.found) apply(r); else viaBrowser();
       })
       .withFailureHandler(function () {
         if (token !== zipToken[f.id]) return;
-        setAuto(cityEl, stateEl, false);
-        hint.textContent = 'Lookup unavailable. Please type the city and state.';
+        viaBrowser();
       })
       .lookupZip(country, zip);
   }
@@ -906,7 +904,7 @@ btn.addEventListener('click', async function () {
       $(x).style.display = (x === id) ? 'block' : 'none';
     });
     document.body.classList.toggle('compact', id !== 'choice');
-    if (id !== 'chatMode') stopVoice();
+    if (id !== 'chatMode') { voiceOn = false; stopVoice(); }
     window.scrollTo(0, 0);
   }
 
@@ -926,8 +924,19 @@ btn.addEventListener('click', async function () {
   var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
   $('goForm').onclick = function () { screen('formMode'); };
-  $('goChat').onclick = function () {
-     function launchChat(ai) {
+  // ---- Back buttons: return to the first page ----
+$('backFromForm').onclick = function () {
+  screen('choice');
+};
+
+$('backFromChat').onclick = function () {
+  if ($('camModal')) closeCamera();
+  started = false;
+  screen('choice');
+};
+
+};
+       function launchChat(ai) {
     screen('chatMode');
     if (started && aiMode === ai) return;
     aiMode = ai; started = true;
@@ -975,7 +984,8 @@ btn.addEventListener('click', async function () {
   if (synth) { lady = pickVoice(); synth.onvoiceschanged = function () { lady = pickVoice(); }; }
 
   function speak(text) {
-    if (!voiceOn || !synth || !text) return;
+  if (!voiceOn || !synth || !text) return;
+  if ($('chatMode').style.display === 'none') return;   // never speak outside the chat page
     var t = String(text).replace(/,?\s*for example [^.\n]*/gi, '')
       .replace(/\d[\d\s-]{4,}\d/g, 'the number shown on screen')
       .replace(/[\u2022\u25CF]+/g, '').replace(/\n+/g, '. ');
@@ -997,7 +1007,10 @@ btn.addEventListener('click', async function () {
     if (cur && cur.type === 'file') return false;
     return !!cur || quick.children.length > 0;
   }
-  function afterSpeech() { if (voiceOn && !noAuto && canAnswer()) listen(); }
+  function afterSpeech() {
+  if ($('chatMode').style.display === 'none') return;   // do not listen outside the chat page
+  if (voiceOn && !noAuto && canAnswer()) listen();
+}
 
   function setListenUI(on) {
     listening = on;
@@ -1190,7 +1203,7 @@ btn.addEventListener('click', async function () {
     });
   }
 
-  function short(f) { return f.label.replace(/\s*\(.*\)\s*$/, ''); }
+  function short(f) { return (f.chatLabel || f.label).replace(/\s*\(.*\)\s*$/, ''); }
   function byId(id) {
     for (var i = 0; i < fields.length; i++) if (fields[i].id === id) return fields[i];
     return null;
@@ -1266,17 +1279,24 @@ btn.addEventListener('click', async function () {
   }
 
   function ask(f, note) {
-        if (f.type === 'phone') {
-      cur = f; phoneCC = ''; quick.innerHTML = '';
-      say(f.label + '\nFirst, tell me the country code. Say or type the country, like India, or the code, like +91.', 'bot',
-          f.label + '. First, tell me the country code. For example, India.');
-      buttons(['India', 'United States', 'United Kingdom', 'United Arab Emirates'].map(function (c) {
+          if (f.type === 'phone') {
+      cur = f; quick.innerHTML = '';
+      if (f.usOnly) {
+        phoneCC = 'United States';
+        say(f.label + '\nPlease type or say your 10-digit US phone number, without +1.', 'bot',
+            'Please tell me your 10-digit US phone number.');
+        return;
+      }
+      phoneCC = '';
+      say(f.label + '\nFirst, tell me the country code. Say or type the country, like United States, or the code, like +1.', 'bot',
+          f.label + '. First, tell me the country code. For example, United States.');
+            buttons(['United States', 'India', 'United Kingdom', 'United Arab Emirates'].map(function (c) {
         return { t: c + ' (+' + DIAL[c] + ')', f: function () {
           phoneCC = c; say('Now type or say the number, without the country code.'); } };
       }));
       return;
     }
-        if (f.type === 'consent') {
+      if (f.type === 'consent') {
       cur = f; quick.innerHTML = '';
       say('Consent\n' + CONSENT_TEXT + '\n(Version ' + CONSENT_VERSION + ')\n\nDo you agree?', 'bot',
           'Before we begin, please read the consent notice on screen. Do you agree?');
@@ -1292,16 +1312,16 @@ btn.addEventListener('click', async function () {
       return;
     }
     cur = f; quick.innerHTML = '';
-    var base = (note || '') + f.label + (f.optional ? ' (optional)' : '');
-    var t = base + (HINT[f.type] ? '\n' + HINT[f.type] : '');
+    var base = (note || '') + (f.chatLabel || f.label) + (f.optional ? ' (optional)' : '');
+        var t = base + (f.selfie ? '\nTake a live selfie with the camera, or upload a clear photo of your face (JPG or PNG, max ' + MAX_MB + ' MB).' : (HINT[f.type] ? '\n' + HINT[f.type] : ''));
     if (f.type === 'select' && f.options.length > 12) t += '\nType or say a few letters and I will find it.';
-    say(t, 'bot', f.type === 'file' ? base + '. Please attach it using the Attach file button.' : t);
+        say(t, 'bot', f.type === 'file' ? base + (f.selfie ? '. Please take a selfie or upload a photo using the buttons.' : '. Please attach it using the Attach file button.') : t);
     var list = [];
     if (f.type === 'select' && f.options.length <= 12) {
       f.options.forEach(function (o) { list.push({ t: o, f: function () { ans[f.id] = o; next(); } }); });
     }
-        if (f.type === 'file') list.push({ t: 'Scan with camera', q: true, f: function () { openCamera(f); } });
-    if (f.type === 'file') list.push({ t: 'Attach file', q: true, f: function () { $('chatFile').click(); } });
+            if (f.type === 'file') list.push({ t: f.selfie ? 'Take a selfie' : 'Scan with camera', q: true, f: function () { openCamera(f); } });
+    if (f.type === 'file') list.push({ t: f.selfie ? 'Upload a photo' : 'Attach file', q: true, f: function () { $('chatFile').click(); } });
     if (f.optional) list.push({ t: 'Skip', f: function () { ans[f.id] = ''; next(); } });
     if (list.length) buttons(list);
   }
@@ -1500,7 +1520,7 @@ btn.addEventListener('click', async function () {
   function zip(f, t) {
     var z = t.replace(/\D/g, '');
     if (!/^\d{5}$/.test(z)) return bad('Please enter a 5-digit ZIP code.');
-        email: 'Please type your email address (spelling an email by voice is unreliable).',
+   
     busy = true;
     say('Looking up city and state...');
     function finish(r) {
@@ -1516,7 +1536,10 @@ btn.addEventListener('click', async function () {
       }
       next();
     }
-    google.script.run.withSuccessHandler(finish).withFailureHandler(function () { finish(null); })
+        function viaBrowser() { browserZip(f.country || 'US', z, function (r) { finish(r && r.found ? r : null); }); }
+    google.script.run
+      .withSuccessHandler(function (r) { if (r && r.found) finish(r); else viaBrowser(); })
+      .withFailureHandler(viaBrowser)
       .lookupZip(f.country || 'US', z);
   }
 
@@ -1525,6 +1548,7 @@ btn.addEventListener('click', async function () {
     this.value = '';
     if (!file || !f || f.type !== 'file') return;
     if (!/\.(pdf|jpe?g|png)$/i.test(file.name)) return bad('Only PDF, JPG or PNG files are accepted.');
+        if (f.selfie && /\.pdf$/i.test(file.name)) return bad('Please upload a JPG or PNG photo of your face.');
     if (file.size > MAX_MB * 1024 * 1024) return bad('That file is larger than ' + MAX_MB + ' MB. Please attach a smaller one.');
     readFile(file).then(function (info) {
       ans[f.id] = info;
@@ -1734,6 +1758,14 @@ btn.addEventListener('click', async function () {
     return part.length === 1 ? part[0] : null;
   }
   function phoneHandle(f, t) {
+        if (f.usOnly) {
+      var d = t.replace(/\D/g, '');
+      if (d.length === 11 && d.charAt(0) === '1') d = d.slice(1);
+      var e = phoneError('United States', d);
+      if (e) return bad(e);
+      ans[f.id] = '+1 ' + d; phoneCC = '';
+      next(); return;
+    }
     if (!phoneCC) {
       var full = /^\+(\d{1,4})[\s-]*([\d\s-]{6,16})$/.exec(t.trim());
       var c = full ? findDial('+' + full[1]) : findDial(t);
