@@ -7,8 +7,8 @@ const FOLDER_ID = '1CyqqqPnASkdrjsLC8rwN8bGR1PJF1imk';
 // replace the two PUT_... lines with real model names.
 const GEMINI_MODELS = [
   'gemini-3.5-flash-lite',
-  'PUT_SECOND_MODEL_NAME_HERE',
-  'PUT_THIRD_MODEL_NAME_HERE'
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite'
 ];
 const RETRIES_PER_MODEL = 2;      // extra tries on the same model before moving on
 const RETRY_WAIT_MS = 1500;       // wait before a retry (grows: 1.5 s, 3 s)
@@ -162,7 +162,7 @@ function lookupZip(countryCode, zip) {
   const cc = String(countryCode).toLowerCase();
   const compact = zip.replace(/\s+/g, '');
   const cache = CacheService.getScriptCache();
-  const cacheKey = 'zip3_' + cc + '_' + compact.toUpperCase();
+  const cacheKey = 'zip4_' + cc + '_' + compact.toUpperCase();
   const hit = cache.get(cacheKey);
   if (hit) return JSON.parse(hit);
 
@@ -184,14 +184,18 @@ function lookupZip(countryCode, zip) {
       const v = variants[i];
       if (!v || tried[v]) continue;
       tried[v] = true;
-      const res = UrlFetchApp.fetch(
-        'https://api.zippopotam.us/' + encodeURIComponent(cc) + '/' + encodeURIComponent(v),
-        { muteHttpExceptions: true });
-      if (res.getResponseCode() === 200) {
-        const places = JSON.parse(res.getContentText()).places || [];
-        if (places.length) {
-          out = { found: true, city: places[0]['place name'], state: places[0]['state'] };
+      try {
+        const res = UrlFetchApp.fetch(
+          'https://api.zippopotam.us/' + encodeURIComponent(cc) + '/' + encodeURIComponent(v),
+          { muteHttpExceptions: true });
+        if (res.getResponseCode() === 200) {
+          const places = JSON.parse(res.getContentText()).places || [];
+          if (places.length) {
+            out = { found: true, city: places[0]['place name'], state: places[0]['state'] };
+          }
         }
+      } catch (e) {
+        Logger.log('ZIP lookup failed for ' + v + ': ' + e.message);
       }
     }
   }
@@ -296,9 +300,10 @@ function isValidEmail(s) {
 }
 
 // Contact number is saved as "+CC digits", for example "+91 9876543210"
-function phoneServerError(p) {
+function phoneServerError(p, accountType) {
   const m = /^\+(\d{1,4}) (\d{6,14})$/.exec(String(p || ''));
   if (!m) return 'Enter a valid contact number with a country code';
+  if (accountType !== 'Business' && m[1] !== '1') return 'Enter a valid US contact number (+1)';
   if (m[1] === '91' && !/^[1-9]\d{9}$/.test(m[2])) return 'Indian numbers must have 10 digits';
   if (m[1] === '1' && !/^[2-9]\d{2}[2-9]\d{6}$/.test(m[2])) return 'US / Canada numbers must have 10 digits';
   return '';
@@ -310,7 +315,7 @@ function validateServer(accountType, typed) {
   const bad = function (id, text) { items.push({ fieldId: id, ok: false, text: text }); };
 
   if (!isValidEmail(typed.email)) bad('email', 'Enter a valid email address');
-  if (phoneServerError(typed.phone)) bad('phone', phoneServerError(typed.phone));
+   if (phoneServerError(typed.phone, accountType)) bad('phone', phoneServerError(typed.phone, accountType));
 
   if (accountType === 'Retail') {
     if (!/^\d{3}-\d{2}-\d{4}$/.test(typed.ssn || '')) {
@@ -856,27 +861,27 @@ function applyIndependentChecks(accountType, summary, parsed, docs, labelToId, i
 
   // 5. Selfie and face match
   if (accountType !== 'Business' && !docs.selfie) {
-    addItem(summary, 'selfie', false, 'A selfie is required.');
+    addItem(summary, 'selfie', false, 'Your photo is required.');
   } else if (hasFace) {
     const f = parsed.face || {};
     const conf = Number(f.confidence) || 0;
     if (f.live_looking === false) {
-      addItem(summary, 'selfie', false, 'The selfie looks like a photo of a photo or a screen. Please take a live selfie.');
+      addItem(summary, 'selfie', false, 'The photo looks like a picture of a printed photo or a screen. Please upload a clear, original photo of your face.');
     } else if (f.status === 'DIFFERENT_PERSON') {
-      addItem(summary, 'selfie', false, 'The selfie does not appear to match the photo on the ID.');
+      addItem(summary, 'selfie', false,'The photo does not appear to match the passport photo.');
     } else if (f.status !== 'SAME_PERSON' || conf < FACE_MIN_CONFIDENCE) {
-      addItem(summary, 'selfie', false, 'Could not confirm that the selfie matches the ID photo. Please retake a clear, well-lit selfie facing the camera.');
+      addItem(summary, 'selfie', false, 'Could not confirm that the photo matches the passport photo. Please use a clear, well-lit, front-facing photo.');
     } else {
-      addItem(summary, 'selfie', true, 'Selfie matches the ID photo');
+      addItem(summary, 'selfie', true, 'Photo matches the passport photo');
     }
   } else if (accountType === 'Retail' && docs.selfie) {
     const sc = parsed.selfie_check || {};
     if (sc.face_present === false) {
-      addItem(summary, 'selfie', false, 'No clear face was found in the selfie. Please retake it facing the camera in good light.');
+      addItem(summary, 'selfie', false, 'No clear face was found in the photo. Please use a front-facing photo in good light.');
     } else if (sc.live_looking === false) {
       addItem(summary, 'selfie', false, 'The selfie looks like a photo of a photo or a screen. Please take a live selfie.');
     } else {
-      addItem(summary, 'selfie', true, 'Live selfie check passed');
+      addItem(summary, 'selfie', true, 'Photo check passed');
     }
   }
 }
